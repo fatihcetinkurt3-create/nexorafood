@@ -174,6 +174,11 @@ async function handleWhatsAppSend(req, res) {
       meta
     });
   } catch (error) {
+    console.error("[WhatsApp] Send failed", {
+      message: error.message,
+      statusCode: error.statusCode || 500,
+      meta: error.meta || null
+    });
     sendJson(res, error.statusCode || 500, {
       ok: false,
       error: error.message,
