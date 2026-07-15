@@ -58,8 +58,23 @@
     posDiscount: 0,
     posPaymentMethod: "Nakit",
     posVeresiyeCustomerId: "",
-    posDrinkOpen: false,
+    posSearch: "",
+    posCategory: "Tumu",
+    posCashReceived: "",
+    posCashHandling: "returned",
+    whatsappSendingType: "",
     productionWasteBusy: false,
+    authMode: "login",
+    authLoading: true,
+    authSession: null,
+    authProfile: null,
+    supabaseEnabled: false,
+    supabaseError: "",
+    syncStatus: "",
+    syncBusy: false,
+    migrationAvailable: false,
+    realtimeChannel: null,
+    offline: !navigator.onLine,
     toast: "",
     setupProductDrafts: [],
     data: loadData()
@@ -123,6 +138,27 @@
 
   function saveData() {
     localStorage.setItem(storageKey, JSON.stringify(state.data));
+    if (state.supabaseEnabled && state.authSession && !state.syncBusy) {
+      state.syncStatus = navigator.onLine ? "Senkron bekliyor" : "Çevrimdışı kuyruğa alındı";
+      if (navigator.onLine) {
+        state.syncBusy = true;
+        window.NexoraDataService?.syncAllData(state.data)
+          .then(() => {
+            state.syncStatus = "Supabase senkronize";
+          })
+          .catch((error) => {
+            console.error("[Supabase] sync failed", error);
+            state.syncStatus = `Senkron hatası: ${error.message}`;
+            window.NexoraOfflineSync?.enqueue({ type: "sync-all", payload: state.data });
+          })
+          .finally(() => {
+            state.syncBusy = false;
+            render();
+          });
+      } else {
+        window.NexoraOfflineSync?.enqueue({ type: "sync-all", payload: state.data });
+      }
+    }
   }
 
   function isSetupCompleted() {
@@ -137,13 +173,27 @@
       return;
     }
 
+    if (state.authLoading) {
+      document.getElementById("app").innerHTML = `<div class="app-shell">${topbar(true)}<section class="panel auth-panel"><h2>Oturum kontrol ediliyor</h2><p class="muted">Supabase bağlantısı hazırlanıyor...</p></section></div>`;
+      return;
+    }
+
+    if (state.supabaseEnabled && !state.authSession) {
+      document.getElementById("app").innerHTML = `<div class="app-shell">${topbar(true)}${authView()}</div>${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}`;
+      bindEvents();
+      return;
+    }
+
     document.getElementById("app").innerHTML = `
       <div class="app-shell">
         ${topbar(true)}
+        ${supabaseStatusBanner()}
+        ${migrationBanner()}
         ${isSetupCompleted() ? adminView() : setupView()}
       </div>
       ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
     `;
+    bindDelegatedAppEvents();
     bindEvents();
   }
 
@@ -164,10 +214,76 @@
           </div>
         </div>
         <div class="top-actions">
+          ${state.authSession ? `<button class="button" type="button" id="logoutSupabase">Çıkış yap</button>` : ""}
           <a class="button ${isAdmin ? "" : "primary"}" href="/demo/food">Demo</a>
           <a class="button ${isAdmin ? "primary" : ""}" href="/demo/food/admin">Admin Panel</a>
         </div>
       </header>
+    `;
+  }
+
+  function supabaseStatusBanner() {
+    if (!state.supabaseEnabled) {
+      return `<section class="panel sync-banner warning"><strong>Yerel mod</strong><span>${escapeHtml(state.supabaseError || "Supabase ayarları bulunamadı. Uygulama mevcut localStorage verisiyle çalışıyor.")}</span></section>`;
+    }
+    const offlineText = state.offline ? "Çevrimdışı" : "Çevrimiçi";
+    const queueCount = window.NexoraOfflineSync?.count?.() || 0;
+    return `<section class="panel sync-banner ${state.offline ? "warning" : "success"}"><strong>${offlineText}</strong><span>${escapeHtml(state.syncStatus || "Supabase oturumu aktif.")}${queueCount ? ` | Kuyruk: ${queueCount}` : ""}</span></section>`;
+  }
+
+  function migrationBanner() {
+    if (!state.migrationAvailable) return "";
+    return `
+      <section class="panel sync-banner warning">
+        <div>
+          <strong>Bu cihazda eski localStorage verileri bulundu.</strong>
+          <span>Verileri bu işletme hesabına yalnızca bir kez aktarabilirsin. Eski yedek silinmez.</span>
+        </div>
+        <button class="button primary" type="button" id="migrateLocalData">Bu cihazdaki verileri hesabıma aktar</button>
+      </section>
+    `;
+  }
+
+  function authView() {
+    const isRegister = state.authMode === "register";
+    const isReset = state.authMode === "reset";
+    return `
+      <main class="auth-shell">
+        <section class="panel auth-panel">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Çok cihazlı işletme hesabı</p>
+              <h2>${isRegister ? "İşletme hesabı oluştur" : isReset ? "Şifremi unuttum" : "Giriş yap"}</h2>
+            </div>
+          </div>
+          <form id="supabaseAuthForm">
+            ${isRegister ? `
+              <div class="form-grid two">
+                ${field("authBusinessName", "İşletme adı", "", "Nexora Çiğköfte")}
+                ${field("authOwnerName", "Yetkili adı", "", "Mustafa")}
+                ${field("authPhone", "Telefon", "", "05381234567")}
+                ${field("authEmail", "E-posta", "", "mail@ornek.com", "email")}
+                ${field("authPassword", "Şifre", "", "En az 6 karakter", "password")}
+              </div>
+            ` : isReset ? `
+              ${field("authEmail", "E-posta", "", "mail@ornek.com", "email")}
+            ` : `
+              <div class="form-grid two">
+                ${field("authEmail", "E-posta", "", "mail@ornek.com", "email")}
+                ${field("authPassword", "Şifre", "", "Şifre", "password")}
+              </div>
+            `}
+            <div class="modal-actions">
+              <button class="button primary" type="submit">${isRegister ? "Hesap oluştur" : isReset ? "Sıfırlama bağlantısı gönder" : "Giriş yap"}</button>
+            </div>
+          </form>
+          <div class="auth-switches">
+            <button class="button compact" type="button" data-auth-mode="login">Giriş yap</button>
+            <button class="button compact" type="button" data-auth-mode="register">İşletme hesabı oluştur</button>
+            <button class="button compact" type="button" data-auth-mode="reset">Şifremi unuttum</button>
+          </div>
+        </section>
+      </main>
     `;
   }
 
@@ -305,7 +421,10 @@
         <button class="button primary" data-page="Satis Yap">Yeni Satis</button>
       </div>
       <div class="grid metrics">
-        ${metric("Toplam ciro", money.format(summary.revenue))}
+        ${metric("Ürün satış cirosu", money.format(summary.revenue))}
+        ${metric("Bahşiş / Bırakılan Para", money.format(summary.tipAmount || 0))}
+        ${metric("Gerçek nakit girişi", money.format(summary.realCashIn || 0))}
+        ${metric("Verilen para üstü", money.format(summary.changeReturned || 0))}
         ${metric("Toplam gider", money.format(summary.expenseTotal))}
         ${metric("Net kar", money.format(summary.netProfit))}
         ${metric("Toplam satis sayisi", summary.count)}
@@ -345,8 +464,8 @@
         <section class="panel">
           <h3>WhatsApp bildirimleri</h3>
           <div class="notification-actions">
-            <button class="button primary" data-whatsapp="critical-stock">Kritik Stok Bildirimi Gonder</button>
-            <button class="button" data-whatsapp="end-of-day">Gun Sonu Raporu Gonder</button>
+            ${whatsAppButton("critical-stock", "Kritik Stok Bildirimi Gonder", "button primary")}
+            ${whatsAppButton("end-of-day", "Gun Sonu Raporu Gonder", "button")}
           </div>
           <p class="muted">Bildirimler ${escapeHtml(normalizePhone(state.data.whatsappNumber) || "tanimsiz")} numarasina gonderilir.</p>
         </section>
@@ -639,8 +758,8 @@
         <section class="panel">
           <h3>Bildirim gonder</h3>
           <div class="notification-actions">
-            <button class="button primary" data-whatsapp="critical-stock">Kritik Stok Bildirimi Gonder</button>
-            <button class="button" data-whatsapp="end-of-day">Gun Sonu Raporu Gonder</button>
+            ${whatsAppButton("critical-stock", "Kritik Stok Bildirimi Gonder", "button primary")}
+            ${whatsAppButton("end-of-day", "Gun Sonu Raporu Gonder", "button")}
           </div>
           <p class="muted">Bildirimler ${escapeHtml(normalizePhone(state.data.whatsappNumber) || "tanimsiz")} numarasina gonderilir.</p>
         </section>
@@ -779,12 +898,20 @@
 
     const totals = state.data.sales.reduce(
       (acc, sale) => {
-        acc.revenue += sale.total;
-        acc.count += sale.quantity;
-        acc.payments[sale.paymentMethod] = (acc.payments[sale.paymentMethod] || 0) + sale.total;
+        const total = parseMoneyValue(sale.total);
+        const tipAmount = parseMoneyValue(sale.tipAmount);
+        const changeReturned = parseMoneyValue(sale.changeReturned);
+        acc.revenue += total;
+        acc.count += Number(sale.quantity || 0);
+        acc.tipAmount += tipAmount;
+        acc.changeReturned += changeReturned;
+        if (normalizePaymentMethod(sale.paymentMethod) === "cash") {
+          acc.realCashIn += total + tipAmount;
+        }
+        acc.payments[sale.paymentMethod] = (acc.payments[sale.paymentMethod] || 0) + total;
         return acc;
       },
-      { revenue: 0, count: 0, payments }
+      { revenue: 0, count: 0, tipAmount: 0, changeReturned: 0, realCashIn: 0, payments }
     );
 
     const soldProducts = [...state.data.products].filter((product) => product.sold > 0).sort((a, b) => b.sold - a.sold);
@@ -1250,6 +1377,12 @@
         </div>
       </div>
     `).join("");
+  }
+
+  function whatsAppButton(type, label, className) {
+    const isSending = state.whatsappSendingType === type;
+    const action = type === "critical-stock" ? "send-critical-stock-whatsapp" : "send-end-of-day-whatsapp";
+    return `<button class="${className}" data-action="${escapeAttribute(action)}" type="button" ${isSending ? "disabled" : ""}>${isSending ? "Gönderiliyor..." : escapeHtml(label)}</button>`;
   }
 
   function empty(message) {
@@ -2042,6 +2175,8 @@
   }
 
   function bindEvents() {
+    bindAuthEvents();
+
     document.querySelectorAll("[data-page]").forEach((button) => {
       button.addEventListener("click", () => {
         if (button.dataset.page === "Hızlı Satış") console.log("[QuickPOS] menu clicked");
@@ -2118,6 +2253,8 @@
     bindClick("saveStockEntry", recordStockEntry);
     bindClick("saveExpense", recordExpense);
     bindClick("saveSettings", saveSettings);
+    bindClick("logoutSupabase", handleSupabaseLogout);
+    bindClick("migrateLocalData", handleMigrateLocalData);
     bindClick("resetSetup", resetSetup);
     bindClick("dashboardVeresiyeCard", () => {
       state.page = "Veresiye";
@@ -2156,10 +2293,6 @@
       });
     });
 
-    document.querySelectorAll("[data-whatsapp]").forEach((button) => {
-      button.addEventListener("click", () => sendWhatsAppNotification(button.dataset.whatsapp));
-    });
-
     const select = document.getElementById("productSelect");
     if (select) {
       select.addEventListener("change", () => {
@@ -2181,6 +2314,195 @@
         state.quantity = Math.max(1, Math.min(Number(quantity.value || 1), selected ? selected.stock || 1 : 1));
       });
     }
+  }
+
+  function bindAuthEvents() {
+    document.querySelectorAll("[data-auth-mode]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.authMode = button.dataset.authMode || "login";
+        render();
+      });
+    });
+    const form = document.getElementById("supabaseAuthForm");
+    form?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      await handleAuthSubmit();
+    });
+  }
+
+  async function handleAuthSubmit() {
+    try {
+      state.syncStatus = "Oturum işleniyor...";
+      if (state.authMode === "register") {
+        await window.NexoraAuth.registerBusiness({
+          businessName: valueOf("authBusinessName"),
+          ownerName: valueOf("authOwnerName"),
+          phone: normalizePhone(valueOf("authPhone")),
+          email: valueOf("authEmail"),
+          password: valueOf("authPassword")
+        });
+        showToast("İşletme hesabı oluşturuldu.");
+      } else if (state.authMode === "reset") {
+        await window.NexoraAuth.resetPassword(valueOf("authEmail"));
+        showToast("Şifre sıfırlama bağlantısı gönderildi.");
+        return;
+      } else {
+        await window.NexoraAuth.signIn(valueOf("authEmail"), valueOf("authPassword"));
+        showToast("Giriş yapıldı.");
+      }
+      await hydrateFromSupabase();
+    } catch (error) {
+      console.error("[Auth] failed", error);
+      showToast(`Oturum hatası: ${error.message}`);
+      render();
+    }
+  }
+
+  async function handleSupabaseLogout() {
+    try {
+      await window.NexoraAuth.signOut();
+      state.authSession = null;
+      state.authProfile = null;
+      state.migrationAvailable = false;
+      showToast("Çıkış yapıldı.");
+      render();
+    } catch (error) {
+      showToast(`Çıkış hatası: ${error.message}`);
+    }
+  }
+
+  async function handleMigrateLocalData() {
+    try {
+      state.syncBusy = true;
+      state.syncStatus = "LocalStorage verileri aktarılıyor...";
+      render();
+      await window.NexoraDataService.migrateLegacyData();
+      state.migrationAvailable = false;
+      await hydrateFromSupabase();
+      showToast("Bu cihazdaki veriler Supabase hesabına aktarıldı.");
+    } catch (error) {
+      console.error("[Migration] failed", error);
+      showToast(`Aktarım hatası: ${error.message}`);
+    } finally {
+      state.syncBusy = false;
+      render();
+    }
+  }
+
+  async function hydrateFromSupabase() {
+    if (!window.NexoraSupabase?.isSupabaseReady?.()) return;
+    const session = await window.NexoraAuth.getSession();
+    state.authSession = session;
+    if (!session) {
+      render();
+      return;
+    }
+    await window.NexoraAuth.ensureBusinessProfile({
+      businessName: state.data.businessName,
+      ownerName: state.data.ownerName,
+      phone: state.data.whatsappNumber
+    });
+    const remote = await window.NexoraDataService.loadBusinessData();
+    state.authProfile = remote.profile;
+    state.data = normalizeLoadedData({ ...emptyData(), ...remote.data });
+    localStorage.setItem(storageKey, JSON.stringify(state.data));
+    state.migrationAvailable = !remote.hasRemoteData && window.NexoraDataService.hasLegacyData() && !window.NexoraDataService.migrationDone(remote.profile.business_id);
+    state.syncStatus = "Supabase verileri yüklendi.";
+    setupRealtimeSync();
+    render();
+  }
+
+  function setupRealtimeSync() {
+    if (state.realtimeChannel || !window.NexoraDataService?.subscribeRealtime) return;
+    state.realtimeChannel = window.NexoraDataService.subscribeRealtime(async () => {
+      if (state.syncBusy) return;
+      try {
+        state.syncStatus = "Uzak değişiklik alındı.";
+        const remote = await window.NexoraDataService.loadBusinessData();
+        state.data = normalizeLoadedData({ ...emptyData(), ...remote.data });
+        render();
+      } catch (error) {
+        console.error("[Realtime] refresh failed", error);
+      }
+    });
+  }
+
+  async function flushOfflineQueue() {
+    if (!state.supabaseEnabled || !state.authSession || !navigator.onLine) return;
+    const result = await window.NexoraOfflineSync.flush(async (item) => {
+      if (item.type === "sync-all") await window.NexoraDataService.syncAllData(item.payload);
+    });
+    if (result.flushed || result.failed) {
+      state.syncStatus = result.failed ? `${result.failed} senkron hatası var.` : `${result.flushed} kuyruk kaydı gönderildi.`;
+      render();
+    }
+  }
+
+  async function bootstrapSupabase() {
+    state.offline = !navigator.onLine;
+    window.addEventListener("online", () => {
+      state.offline = false;
+      flushOfflineQueue().catch((error) => {
+        state.syncStatus = `Kuyruk hatası: ${error.message}`;
+        render();
+      });
+      render();
+    });
+    window.addEventListener("offline", () => {
+      state.offline = true;
+      state.syncStatus = "Çevrimdışı";
+      render();
+    });
+
+    const client = await window.NexoraSupabase?.initSupabaseClient?.();
+    state.supabaseEnabled = Boolean(client);
+    state.supabaseError = window.NexoraSupabase?.getSupabaseStatus?.().error?.message || "";
+    state.authLoading = false;
+    if (!client) {
+      render();
+      return;
+    }
+
+    client.auth.onAuthStateChange(async (_event, session) => {
+      state.authSession = session;
+      if (session) {
+        try {
+          await hydrateFromSupabase();
+        } catch (error) {
+          console.error("[Supabase] hydrate failed", error);
+          state.syncStatus = `Yükleme hatası: ${error.message}`;
+          render();
+        }
+      } else {
+        render();
+      }
+    });
+
+    try {
+      await hydrateFromSupabase();
+      await flushOfflineQueue();
+    } catch (error) {
+      console.error("[Supabase] bootstrap failed", error);
+      state.authSession = await window.NexoraAuth.getSession().catch(() => null);
+      state.syncStatus = `Supabase hatası: ${error.message}`;
+      render();
+    }
+  }
+
+  function bindDelegatedAppEvents() {
+    const app = document.getElementById("app");
+    if (!app || app.dataset.delegatedEvents === "true") return;
+    app.dataset.delegatedEvents = "true";
+    app.addEventListener("click", (event) => {
+      const actionButton = event.target.closest("[data-action]");
+      if (!actionButton || !app.contains(actionButton)) return;
+      const action = actionButton.dataset.action;
+      if (action === "send-critical-stock-whatsapp" || action === "send-end-of-day-whatsapp") {
+        event.preventDefault();
+        console.log("[WhatsApp] button click detected", action);
+        sendWhatsAppNotification(action === "send-critical-stock-whatsapp" ? "critical-stock" : "end-of-day");
+      }
+    });
   }
 
   function bindClick(id, handler) {
@@ -2733,8 +3055,13 @@
   async function sendWhatsAppNotification(type) {
     const message = type === "critical-stock" ? buildCriticalStockMessage() : buildEndOfDayMessage();
     const label = type === "critical-stock" ? "Kritik stok bildirimi" : "Gun sonu raporu";
+    const to = normalizePhone(state.data.whatsappNumber);
 
+    if (state.whatsappSendingType) return;
+
+    state.whatsappSendingType = type;
     showToast(`${label} gonderiliyor...`);
+    render();
 
     try {
       const response = await fetch("/api/food/whatsapp/send", {
@@ -2742,15 +3069,37 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type,
-          to: normalizePhone(state.data.whatsappNumber),
+          to,
           message
         })
       });
-      const data = await response.json();
-      if (!response.ok || !data.ok) throw new Error(data.error || "WhatsApp bildirimi gonderilemedi.");
+      const responseText = await response.text();
+      let data = null;
+      try {
+        data = responseText ? JSON.parse(responseText) : null;
+      } catch (parseError) {
+        data = { raw: responseText };
+      }
+      if (!response.ok || !data?.ok) {
+        const error = new Error(data?.error || `WhatsApp bildirimi gonderilemedi. HTTP ${response.status}`);
+        error.status = response.status;
+        error.details = data;
+        throw error;
+      }
       showToast(`${label} ${data.to} numarasina gonderildi.`);
     } catch (error) {
-      showToast(`WhatsApp hata: ${error.message}`);
+      console.error("[WhatsApp] Bildirim gönderilemedi", {
+        type,
+        to,
+        message,
+        status: error.status,
+        details: error.details,
+        error
+      });
+      showToast(`WhatsApp hata: ${error.message || "Bildirim gonderilemedi."}`);
+    } finally {
+      state.whatsappSendingType = "";
+      render();
     }
   }
 
@@ -2792,6 +3141,9 @@ ${rows}`;
     return `Gun Sonu Ozeti
 
 Ciro: ${formatTL(summary.revenue)}
+Bahsis / Birakilan Para: ${formatTL(summary.tipAmount || 0)}
+Gercek Nakit Girisi: ${formatTL(summary.realCashIn || 0)}
+Verilen Para Ustu: ${formatTL(summary.changeReturned || 0)}
 Gider: ${formatTL(summary.expenseTotal)}
 Net Kar: ${formatTL(summary.netProfit)}
 
@@ -3698,14 +4050,20 @@ ${recentSales}`;
     let totalSales = 0;
     let soldProductCost = 0;
     let saleCount = 0;
+    let tipAmount = 0;
+    let changeReturned = 0;
     const productCounts = {};
 
     sales.forEach((sale) => {
       const amount = saleAmountForCashClosing(sale);
       const cost = saleCostForCashClosing(sale);
       const method = normalizePaymentMethod(sale.paymentMethod);
+      const saleTip = isCanceledSale(sale) || isRefundedSale(sale) ? 0 : parseMoneyValue(sale.tipAmount);
+      const saleChangeReturned = isCanceledSale(sale) || isRefundedSale(sale) ? 0 : parseMoneyValue(sale.changeReturned);
       totalSales += amount;
       soldProductCost += cost;
+      tipAmount += saleTip;
+      changeReturned += saleChangeReturned;
       paymentTotals[method] = (paymentTotals[method] || 0) + amount;
       if (!isCanceledSale(sale) && !isRefundedSale(sale)) saleCount += 1;
       const items = Array.isArray(sale.items) && sale.items.length ? sale.items : [sale];
@@ -3728,6 +4086,11 @@ ${recentSales}`;
     return {
       date: day,
       totalSales: Math.round(totalSales * 100) / 100,
+      productSalesRevenue: Math.round(totalSales * 100) / 100,
+      tipAmount: Math.round(tipAmount * 100) / 100,
+      changeReturned: Math.round(changeReturned * 100) / 100,
+      cashProductSalesForExpected: Math.round(((paymentTotals.cash || 0) + changeReturned) * 100) / 100,
+      realCashIn: Math.round(((paymentTotals.cash || 0) + tipAmount) * 100) / 100,
       cashSales: Math.round((paymentTotals.cash || 0) * 100) / 100,
       posSales: Math.round((paymentTotals.pos || 0) * 100) / 100,
       ibanSales: Math.round((paymentTotals.iban || 0) * 100) / 100,
@@ -3756,7 +4119,7 @@ ${recentSales}`;
     const openingCash = parseMoneyValue(values.openingCash);
     const otherIn = parseMoneyValue(values.otherCashIn);
     const otherOut = parseMoneyValue(values.otherCashOut);
-    return Math.round((openingCash + summary.cashSales + summary.creditCollections.cash - summary.expenses.cash - summary.supplierPayments.cash - Math.abs(summary.refunds || 0) + otherIn - otherOut) * 100) / 100;
+    return Math.round((openingCash + (summary.cashProductSalesForExpected ?? summary.cashSales) + (summary.tipAmount || 0) - (summary.changeReturned || 0) + summary.creditCollections.cash - summary.expenses.cash - summary.supplierPayments.cash - Math.abs(summary.refunds || 0) + otherIn - otherOut) * 100) / 100;
   }
 
   function calculateDenominationTotal(values = {}) {
@@ -3843,6 +4206,11 @@ ${recentSales}`;
         cashExpenses: summary.expenses.cash,
         unspecifiedExpenses: summary.expenses.unknown,
         cashSales: summary.cashSales,
+        productSalesRevenue: summary.productSalesRevenue,
+        tipAmount: summary.tipAmount,
+        realCashIn: summary.realCashIn,
+        changeReturned: summary.changeReturned,
+        cashProductSalesForExpected: summary.cashProductSalesForExpected,
         posSales: summary.posSales,
         ibanSales: summary.ibanSales,
         onlineSales: summary.onlineSales,
@@ -3920,7 +4288,11 @@ ${recentSales}`;
         <div class="grid metrics">
           ${metric("Toplam satış", formatTRY(summary.totalSales))}
           ${metric("Nakit satış", formatTRY(summary.cashSales))}
-          ${metric("Veresiye satış", formatTRY(summary.creditSales))}
+        ${metric("Veresiye satış", formatTRY(summary.creditSales))}
+          ${metric("Bahşiş / Bırakılan Para", formatTRY(summary.tipAmount || 0))}
+          ${metric("Gerçek nakit girişi", formatTRY(summary.realCashIn || 0))}
+          ${metric("Verilen para üstü", formatTRY(summary.changeReturned || 0))}
+          ${metric("Beklenen kasa nakdi", formatTRY(calculateExpectedCash(summary, { openingCash })))}
           ${metric("Net operasyon kârı", formatTRY(summary.netOperatingProfit))}
         </div>
         ${existing ? `<div class="panel cash-closing-alert success">${escapeHtml(date)} için kapanış kayıtlı. Formu kaydederseniz aynı kayıt güncellenir.</div>` : `<div class="panel cash-closing-alert warning">${escapeHtml(date)} için gün sonu henüz kapatılmadı.</div>`}
@@ -3954,6 +4326,11 @@ ${recentSales}`;
             <div class="cash-denomination-total"><span>Kupür toplamı</span><strong id="denominationTotal">0 TL</strong></div>
             <button class="button" type="button" id="applyDenominationTotal">Toplamı Sayılan Nakde Aktar</button>
             <h3 style="margin-top: 18px;">Gün özeti</h3>
+            ${reportRow("Ürün satış cirosu", formatTRY(summary.productSalesRevenue ?? summary.totalSales))}
+            ${reportRow("Bahşiş / bırakılan para", formatTRY(summary.tipAmount || 0))}
+            ${reportRow("Gerçek nakit girişi", formatTRY(summary.realCashIn || 0))}
+            ${reportRow("Verilen para üstü", formatTRY(summary.changeReturned || 0))}
+            ${reportRow("Beklenen kasa nakdi", formatTRY(calculateExpectedCash(summary, { openingCash })))}
             ${reportRow("POS beklenen", formatTRY(summary.posExpected))}
             ${reportRow("IBAN beklenen", formatTRY(summary.ibanExpected))}
             ${reportRow("Online beklenen", formatTRY(summary.onlineExpected))}
@@ -3989,6 +4366,10 @@ ${recentSales}`;
     return `
       <div class="cash-closing-detail">
         ${reportRow("Tarih", record.date)}
+        ${reportRow("Ürün satış cirosu", formatTRY(record.productSalesRevenue ?? record.totalSales))}
+        ${reportRow("Bahşiş / bırakılan para", formatTRY(record.tipAmount || 0))}
+        ${reportRow("Gerçek nakit girişi", formatTRY(record.realCashIn || 0))}
+        ${reportRow("Verilen para üstü", formatTRY(record.changeReturned || 0))}
         ${reportRow("Toplam satış", formatTRY(record.totalSales))}
         ${reportRow("Nakit satış", formatTRY(record.cashSales))}
         ${reportRow("POS", formatTRY(record.posSales))}
@@ -4106,38 +4487,75 @@ ${recentSales}`;
       dailyNetOperatingProfit: todayClosing?.netOperatingProfit || calculateDailyCashSummary(today).netOperatingProfit
     };
   }
-  function quickPosFeaturedProducts() {
-    const findByAlias = (aliases, predicate) => state.data.products.find((product) => {
-      if (!isSaleProduct(product)) return false;
-      const name = normalizeBusinessName(product.name);
-      return aliases.some((alias) => name.includes(alias)) && (!predicate || predicate(product, name));
-    });
-    const products = [
-      findSaleProductByName("Normal Dürüm") || findByAlias(["normal"], null) || findByAlias(["normal kofte"], null),
-      findSaleProductByName("Mega Dürüm") || findByAlias(["mega"], null),
-      findSaleProductByName("Ultra Dürüm") || findByAlias(["ultra"], null),
-      findSaleProductByName("Double Dürüm") || findByAlias(["double", "duble"], null),
-      findSaleProductByName("Firik") || state.data.products.find((product) => isSaleProduct(product) && product.saleType === "weighted") || findByAlias(["firik"], null)
-    ];
-    const unique = new Map();
-    products.filter(Boolean).forEach((product) => unique.set(product.id, product));
-    return [...unique.values()];
+  function quickPosSaleProducts() {
+    return state.data.products.filter(isSaleProduct);
   }
 
-  function quickPosDrinkProducts() {
-    const drinkNames = ["ayran", "şalgam", "salgam", "kola", "su", "soda"];
-    return state.data.products.filter((product) => {
-      const name = normalizeBusinessName(product.name);
-      const category = normalizeBusinessName(product.category);
-      return isSaleProduct(product) && product.saleType !== "weighted" && (category.includes("icecek") || drinkNames.some((item) => name.includes(item)));
+  function quickPosCategories(products) {
+    const categoryNames = new Set();
+    state.data.categories.forEach((category) => {
+      if (products.some((product) => product.category === category)) categoryNames.add(category);
     });
+    products.forEach((product) => categoryNames.add(product.category || "Genel"));
+    return ["Tumu", ...categoryNames];
+  }
+
+  function quickPosFilteredProducts(products) {
+    const query = state.posSearch.trim().toLocaleLowerCase("tr-TR");
+    return products.filter((product) => {
+      const matchesCategory = state.posCategory === "Tumu" || product.category === state.posCategory;
+      const matchesQuery = !query || product.name.toLocaleLowerCase("tr-TR").includes(query);
+      return matchesCategory && matchesQuery;
+    });
+  }
+
+  function quickPosProductGroups(products) {
+    return products.reduce((groups, product) => {
+      const category = product.category || "Genel";
+      if (!groups.has(category)) groups.set(category, []);
+      groups.get(category).push(product);
+      return groups;
+    }, new Map());
+  }
+
+  function quickPosCashInfo(total = quickPosTotal()) {
+    const received = parseMoneyValue(state.posCashReceived);
+    const changeDue = Math.max(0, Math.round((received - total) * 100) / 100);
+    const shortfall = Math.max(0, Math.round((total - received) * 100) / 100);
+    const customerLeftChange = state.posCashHandling === "tip" && changeDue > 0;
+    return {
+      received,
+      changeDue,
+      shortfall,
+      changeReturned: customerLeftChange ? 0 : changeDue,
+      tipAmount: customerLeftChange ? changeDue : 0
+    };
+  }
+
+  function customAmountStockQuantity(product, amount, manualKg = 0) {
+    if (!product) return 0;
+    const price = Number(product.price || 0);
+    const unit = String(product.unit || "").toLocaleLowerCase("tr-TR");
+    if (product.saleType === "weighted" || unit === "kg") {
+      return price > 0 ? roundStock(amount / price) : roundStock(manualKg);
+    }
+    return 1;
+  }
+
+  function customAmountStockLabel(product, quantity) {
+    if (!product) return "-";
+    if (product.saleType === "weighted" || String(product.unit || "").toLocaleLowerCase("tr-TR") === "kg") {
+      return formatStock(quantity, "Kg");
+    }
+    return formatStock(quantity, product.unit || "Adet");
   }
 
   function quickPosPage() {
-    const products = quickPosFeaturedProducts();
-    const drinks = quickPosDrinkProducts();
-    console.log("[QuickPOS] page rendered");
-    console.log("[QuickPOS] products", products);
+    const products = quickPosSaleProducts();
+    const categories = quickPosCategories(products);
+    if (!categories.includes(state.posCategory)) state.posCategory = "Tumu";
+    const visibleProducts = quickPosFilteredProducts(products);
+    const groups = quickPosProductGroups(visibleProducts);
 
     return `
       <section class="quick-pos-page">
@@ -4146,26 +4564,40 @@ ${recentSales}`;
             <p class="eyebrow">Dokunmatik kasa</p>
             <h2>Hızlı Satış (POS)</h2>
           </div>
-          <button class="button" type="button" id="clearQuickPosCart">Sepeti Temizle</button>
+          <div class="quick-pos-head-actions">
+            <button class="button primary" type="button" id="openQuickPosCustomAmount">Tutarla Satış</button>
+            <button class="button" type="button" id="clearQuickPosCart">Sepeti Temizle</button>
+          </div>
         </div>
         <div class="quick-pos-layout">
-          <div class="quick-pos-products">
-            ${products.map(quickPosProductCard).join("")}
-            <button class="quick-pos-card quick-pos-drink-card" type="button" id="toggleQuickPosDrinks">
-              <span class="quick-pos-icon">🥤</span>
-              <strong>İçecekler</strong>
-              <small>${drinks.length} ürün</small>
-            </button>
-            ${state.posDrinkOpen ? `
-              <div class="quick-pos-drinks">
-                ${drinks.length ? drinks.map((product) => `
-                  <button class="quick-pos-mini-card" type="button" data-pos-drink="${escapeAttribute(product.id)}">
-                    <strong>${escapeHtml(product.name)}</strong>
-                    <span>${formatTRY(product.price)}</span>
+          <div class="quick-pos-main">
+            <div class="quick-pos-search">
+              <input id="quickPosSearch" value="${escapeAttribute(state.posSearch)}" placeholder="Ürün ara" />
+            </div>
+            <div class="quick-pos-categories">
+              ${categories.map((category) => {
+                const count = category === "Tumu" ? products.length : products.filter((product) => product.category === category).length;
+                return `
+                  <button class="quick-pos-category-card ${state.posCategory === category ? "active" : ""}" type="button" data-pos-category="${escapeAttribute(category)}">
+                    <strong>${category === "Tumu" ? "Tüm Ürünler" : escapeHtml(category)}</strong>
+                    <span>${count} ürün</span>
                   </button>
-                `).join("") : empty("İçecek ürünü bulunamadı.")}
-              </div>
-            ` : ""}
+                `;
+              }).join("")}
+            </div>
+            <div class="quick-pos-products">
+              ${visibleProducts.length ? [...groups.entries()].map(([category, groupProducts]) => `
+                <section class="quick-pos-group">
+                  <div class="quick-pos-group-head">
+                    <h3>${state.posCategory === "Tumu" && category === "Tumu" ? "Tüm Ürünler" : escapeHtml(category)}</h3>
+                    <span>${groupProducts.length} ürün</span>
+                  </div>
+                  <div class="quick-pos-product-grid">
+                    ${groupProducts.map(quickPosProductCard).join("")}
+                  </div>
+                </section>
+              `).join("") : empty("Aramanıza uygun satış ürünü bulunamadı.")}
+            </div>
           </div>
           ${quickPosCartPanel()}
         </div>
@@ -4176,11 +4608,14 @@ ${recentSales}`;
   function quickPosProductCard(product) {
     const icon = product.saleType === "weighted" ? "⚖️" : "🌯";
     const price = product.saleType === "weighted" ? `${formatTRY(product.price || 0)}/kg` : formatTRY(product.price || 0);
+    const available = calculateAvailableRecipeQuantity(product);
+    const disabled = available <= 0 ? "disabled" : "";
     return `
-      <button class="quick-pos-card" type="button" data-pos-product="${escapeAttribute(product.id)}" data-product-id="${escapeAttribute(product.id)}">
+      <button class="quick-pos-card" type="button" data-pos-product="${escapeAttribute(product.id)}" data-product-id="${escapeAttribute(product.id)}" ${disabled}>
         <span class="quick-pos-icon">${icon}</span>
         <strong>${escapeHtml(product.name)}</strong>
         <small>${price}</small>
+        <small class="${available <= 0 ? "danger" : "muted"}">${available <= 0 ? "Stok yok" : `Stok: ${formatStock(available, product.saleType === "weighted" ? "Kg" : product.unit)}`}</small>
       </button>
     `;
   }
@@ -4197,6 +4632,7 @@ ${recentSales}`;
     const customers = getVeresiyeCustomers();
     const subtotal = quickPosSubtotal();
     const total = quickPosTotal();
+    const cashInfo = quickPosCashInfo(total);
 
     return `
       <aside class="quick-pos-cart">
@@ -4249,6 +4685,22 @@ ${recentSales}`;
             </div>
           </div>
         ` : ""}
+        ${state.posPaymentMethod === "Nakit" ? `
+          <div class="quick-pos-cash-panel">
+            <div class="quick-pos-totals">
+              <div><span>Hesap toplamı</span><strong>${formatTRY(total)}</strong></div>
+              <div><span>Verilen para</span><strong>${formatTRY(cashInfo.received)}</strong></div>
+              <div><span>${cashInfo.shortfall > 0 ? "Kalan tutar" : "Para üstü"}</span><strong class="${cashInfo.shortfall > 0 ? "danger" : "success"}">${formatTRY(cashInfo.shortfall || cashInfo.changeDue)}</strong></div>
+            </div>
+            <input id="quickPosCashReceived" type="number" min="0" step="0.01" value="${escapeAttribute(state.posCashReceived)}" placeholder="Müşterinin verdiği para" />
+            ${cashInfo.changeDue > 0 ? `
+              <div class="quick-pos-methods">
+                <label><input type="radio" name="quickPosCashHandling" value="returned" ${state.posCashHandling !== "tip" ? "checked" : ""} /> Para üstü verildi</label>
+                <label><input type="radio" name="quickPosCashHandling" value="tip" ${state.posCashHandling === "tip" ? "checked" : ""} /> Müşteri bıraktı</label>
+              </div>
+            ` : ""}
+          </div>
+        ` : ""}
         <button type="button" class="quick-pos-complete" id="completeQuickPosSale" ${state.posCart.length ? "" : "disabled"}>Satışı Tamamla</button>
       </aside>
     `;
@@ -4256,15 +4708,16 @@ ${recentSales}`;
 
   function quickPosCartRow(item) {
     const optionText = hasCartDoritos(item) ? "Doritos" : item.saleType === "weighted" ? formatWeightedAmount(item) : "";
+    const detailText = item.customAmountSale ? [item.note, `Stok düşümü: ${customAmountStockLabel(findProductById(item.originalProductId || item.productId), item.stockDeductQuantity || item.quantityKg || item.quantity || 0)}`].filter(Boolean).join(" - ") : optionText;
     return `
       <div class="quick-pos-cart-row">
         <div>
           <strong>${escapeHtml(item.name)}</strong>
-          ${optionText ? `<span>${escapeHtml(optionText)}</span>` : ""}
+          ${detailText ? `<span>${escapeHtml(detailText)}</span>` : ""}
         </div>
         <strong>${formatTRY(item.lineTotal)}</strong>
         <div class="quick-pos-row-actions">
-          ${item.saleType === "weighted" ? "" : `<button type="button" data-pos-cart-dec="${escapeAttribute(item.key)}">-</button><span>x${item.quantity}</span><button type="button" data-pos-cart-inc="${escapeAttribute(item.key)}">+</button>`}
+          ${item.saleType === "weighted" || item.customAmountSale || item.saleType === "custom-amount" ? "" : `<button type="button" data-pos-cart-dec="${escapeAttribute(item.key)}">-</button><span>x${item.quantity}</span><button type="button" data-pos-cart-inc="${escapeAttribute(item.key)}">+</button>`}
           <button type="button" data-pos-cart-remove="${escapeAttribute(item.key)}">Sil</button>
         </div>
       </div>
@@ -4433,32 +4886,172 @@ ${recentSales}`;
     });
   }
 
+  function openQuickPosCustomAmountModal() {
+    const products = quickPosSaleProducts();
+    if (!products.length) {
+      showToast("Tutarla satış için satış ürünü bulunamadı.");
+      return;
+    }
+    const firstProduct = products[0];
+    const modal = openModal("Tutarla Satış", `
+      <form id="quickPosCustomAmountForm">
+        <div class="form-grid two">
+          <div class="field">
+            <label for="quickPosCustomProduct">Ürün seçimi</label>
+            <select id="quickPosCustomProduct">
+              ${products.map((product) => `<option value="${escapeAttribute(product.id)}">${escapeHtml(product.name)} - ${escapeHtml(product.category || "Genel")}</option>`).join("")}
+            </select>
+          </div>
+          <div class="field">
+            <label for="quickPosCustomAmount">Satış tutarı</label>
+            <input id="quickPosCustomAmount" type="number" min="0.01" step="0.01" value="100" />
+          </div>
+        </div>
+        <div class="quick-pos-fast-grid">
+          ${[50, 100, 150, 200, 250].map((amount) => `<button type="button" data-custom-amount="${amount}">${amount} TL</button>`).join("")}
+          <button type="button" data-custom-amount="">Manuel tutar</button>
+        </div>
+        <label class="quick-pos-check" id="quickPosCustomDeductWrap">
+          <input id="quickPosCustomDeductStock" type="checkbox" checked />
+          <span>Stoktan düş</span>
+        </label>
+        <div class="form-grid two" id="quickPosCustomKgWrap">
+          <div class="field">
+            <label for="quickPosCustomKg">Düşülecek kg</label>
+            <input id="quickPosCustomKg" type="number" min="0.001" step="0.001" value="" />
+          </div>
+          <div class="field">
+            <label>Stok önizleme</label>
+            <input id="quickPosCustomStockPreview" readonly />
+          </div>
+        </div>
+        <div class="field">
+          <label for="quickPosCustomNote">Açıklama/not</label>
+          <input id="quickPosCustomNote" placeholder="Örn. müşteriye özel tutar" />
+        </div>
+        <p class="muted" id="quickPosCustomSummary"></p>
+        <div class="modal-actions">
+          <button type="button" class="button" data-close-modal>İptal</button>
+          <button type="submit" class="button primary">Sepete Ekle</button>
+        </div>
+      </form>
+    `);
+
+    const productSelect = modal.querySelector("#quickPosCustomProduct");
+    const amountInput = modal.querySelector("#quickPosCustomAmount");
+    const kgInput = modal.querySelector("#quickPosCustomKg");
+    const kgWrap = modal.querySelector("#quickPosCustomKgWrap");
+    const deductInput = modal.querySelector("#quickPosCustomDeductStock");
+    const summary = modal.querySelector("#quickPosCustomSummary");
+    const stockPreview = modal.querySelector("#quickPosCustomStockPreview");
+
+    const currentProduct = () => findProductById(productSelect?.value) || firstProduct;
+    const refresh = () => {
+      const product = currentProduct();
+      const amount = parseMoneyValue(amountInput?.value || 0);
+      const unit = String(product?.unit || "").toLocaleLowerCase("tr-TR");
+      const isKg = product?.saleType === "weighted" || unit === "kg";
+      const price = Number(product?.price || 0);
+      if (kgWrap) kgWrap.style.display = isKg ? "" : "none";
+      const manualKg = parseMoneyValue(kgInput?.value || 0);
+      const stockQuantity = deductInput?.checked ? customAmountStockQuantity(product, amount, manualKg) : 0;
+      const available = calculateAvailableRecipeQuantity(product);
+      if (isKg && price > 0 && kgInput) kgInput.value = stockQuantity ? String(stockQuantity) : "";
+      if (stockPreview) stockPreview.value = deductInput?.checked ? `${customAmountStockLabel(product, stockQuantity)} / mevcut ${customAmountStockLabel(product, available)}` : "Stok düşülmeyecek";
+      if (summary) {
+        summary.textContent = `${product.name} - tutar ${formatTRY(amount)} - ${deductInput?.checked ? `stok düşümü ${customAmountStockLabel(product, stockQuantity)}` : "stok düşülmeyecek"}`;
+        summary.className = deductInput?.checked && stockQuantity > available ? "danger" : "muted";
+      }
+    };
+
+    productSelect?.addEventListener("change", refresh);
+    amountInput?.addEventListener("input", refresh);
+    kgInput?.addEventListener("input", refresh);
+    deductInput?.addEventListener("change", refresh);
+    modal.querySelectorAll("[data-custom-amount]").forEach((button) => {
+      button.addEventListener("click", () => {
+        if (amountInput) {
+          amountInput.value = button.dataset.customAmount || "";
+          amountInput.focus();
+        }
+        refresh();
+      });
+    });
+    refresh();
+
+    modal.querySelector("#quickPosCustomAmountForm")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const product = currentProduct();
+      const amount = parseMoneyValue(amountInput?.value || 0);
+      if (amount <= 0) {
+        showToast("Tutarla satış için pozitif tutar girin.");
+        return;
+      }
+      const deductStock = deductInput?.checked !== false;
+      const manualKg = parseMoneyValue(kgInput?.value || 0);
+      const stockQuantity = deductStock ? customAmountStockQuantity(product, amount, manualKg) : 0;
+      const available = calculateAvailableRecipeQuantity(product);
+      if (deductStock && stockQuantity <= 0) {
+        showToast("Stoktan düşülecek miktar girin.");
+        return;
+      }
+      if (deductStock && stockQuantity > available) {
+        showToast("Bu ürün için yeterli stok yok.");
+        return;
+      }
+      state.posCart.push({
+        key: quickPosCartKey(product.id, [], "custom-amount") + `:${Date.now()}`,
+        productId: product.id,
+        originalProductId: product.id,
+        name: `${product.name} - Tutarla Satış`,
+        saleType: "custom-amount",
+        customAmountSale: true,
+        rawMaterialId: product.rawMaterialId || null,
+        quantity: stockQuantity,
+        stockDeductQuantity: stockQuantity,
+        quantityKg: product.saleType === "weighted" || String(product.unit || "").toLocaleLowerCase("tr-TR") === "kg" ? stockQuantity : null,
+        unitPrice: amount,
+        lineTotal: amount,
+        options: [],
+        note: valueOf("quickPosCustomNote")
+      });
+      closeActiveModal();
+      render();
+    });
+  }
+
   function bindQuickPosEvents() {
-    console.log("[QuickPOS] events binding started");
     bindClick("clearQuickPosCart", () => {
       state.posCart = [];
       state.posDiscount = 0;
+      state.posCashReceived = "";
+      state.posCashHandling = "returned";
       render();
     });
-    bindClick("toggleQuickPosDrinks", () => {
-      state.posDrinkOpen = !state.posDrinkOpen;
+    bindClick("openQuickPosCustomAmount", openQuickPosCustomAmountModal);
+    const searchInput = document.getElementById("quickPosSearch");
+    searchInput?.addEventListener("input", () => {
+      state.posSearch = searchInput.value;
       render();
+    });
+    document.querySelectorAll("[data-pos-category]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.posCategory = button.dataset.posCategory || "Tumu";
+        render();
+      });
     });
     document.querySelectorAll("[data-pos-product]").forEach((button) => {
       button.addEventListener("click", () => {
         const productId = button.dataset.posProduct || button.dataset.productId;
-        console.log("[QuickPOS] product clicked", productId);
         const product = findProductById(productId);
-        console.log("[QuickPOS] product found", product);
         if (!product) return;
+        if (calculateAvailableRecipeQuantity(product) <= 0) {
+          showToast("Stok yok.");
+          return;
+        }
         if (product.saleType === "weighted") openQuickPosFirikModal(product);
-        else openQuickPosDurumModal(product);
-      });
-    });
-    document.querySelectorAll("[data-pos-drink]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const product = findProductById(button.dataset.posDrink);
-        if (product) addQuickPosStandardProduct(product, []);
+        else if (product.supportsDoritos) openQuickPosDurumModal(product);
+        else addQuickPosStandardProduct(product, []);
       });
     });
     document.querySelectorAll("[data-pos-cart-inc]").forEach((button) => {
@@ -4487,6 +5080,21 @@ ${recentSales}`;
     document.querySelectorAll("[data-pos-payment]").forEach((button) => {
       button.addEventListener("click", () => {
         state.posPaymentMethod = button.dataset.posPayment;
+        if (state.posPaymentMethod !== "Nakit") {
+          state.posCashReceived = "";
+          state.posCashHandling = "returned";
+        }
+        render();
+      });
+    });
+    const cashReceived = document.getElementById("quickPosCashReceived");
+    cashReceived?.addEventListener("input", () => {
+      state.posCashReceived = cashReceived.value;
+      render();
+    });
+    document.querySelectorAll("input[name='quickPosCashHandling']").forEach((input) => {
+      input.addEventListener("change", () => {
+        state.posCashHandling = input.value;
         render();
       });
     });
@@ -4495,12 +5103,11 @@ ${recentSales}`;
       state.posVeresiyeCustomerId = customerSelect.value;
     });
     bindClick("completeQuickPosSale", completeQuickPosSale);
-    console.log("[QuickPOS] events bound");
   }
 
   function changeQuickPosCartQuantity(key, delta) {
     const item = state.posCart.find((entry) => entry.key === key);
-    if (!item || item.saleType === "weighted") return;
+    if (!item || item.saleType === "weighted" || item.customAmountSale || item.saleType === "custom-amount") return;
     const product = findProductById(item.productId);
     const nextQuantity = Number(item.quantity || 0) + delta;
     if (nextQuantity <= 0) {
@@ -4526,7 +5133,14 @@ ${recentSales}`;
     const total = quickPosTotal();
     const method = state.posPaymentMethod || "Nakit";
     const items = state.posCart.map((cartItem) => ({ cartItem, product: findProductById(cartItem.productId) }));
-    const invalidItem = items.find((item) => !item.product || (item.cartItem.saleType !== "weighted" && (!Array.isArray(item.product.recipe) || !item.product.recipe.length) && item.product.stock < item.cartItem.quantity));
+    const invalidItem = items.find((item) => {
+      if (!item.product) return true;
+      if (item.cartItem.customAmountSale || item.cartItem.saleType === "custom-amount") {
+        if (item.cartItem.rawMaterialId || (Array.isArray(item.product.recipe) && item.product.recipe.length)) return false;
+        return Number(item.product.stock || 0) < Number(item.cartItem.stockDeductQuantity || 0);
+      }
+      return item.cartItem.saleType !== "weighted" && (!Array.isArray(item.product.recipe) || !item.product.recipe.length) && item.product.stock < item.cartItem.quantity;
+    });
     if (invalidItem) {
       showToast("Bu ürün için yeterli stok yok.");
       return;
@@ -4551,12 +5165,23 @@ ${recentSales}`;
         }
       }
     }
+    const cashInfo = quickPosCashInfo(total);
+    if (method === "Nakit") {
+      if (cashInfo.received < total) {
+        showToast(`Nakit ödeme eksik. Kalan tutar: ${formatTRY(cashInfo.shortfall)}`);
+        return;
+      }
+    }
 
     items.forEach(({ cartItem, product }) => {
-      if (cartItem.saleType !== "weighted" && (!Array.isArray(product.recipe) || !product.recipe.length)) {
+      if (cartItem.customAmountSale || cartItem.saleType === "custom-amount") {
+        if (!cartItem.rawMaterialId && (!Array.isArray(product.recipe) || !product.recipe.length)) {
+          product.stock = roundStock(product.stock - Number(cartItem.stockDeductQuantity || 0));
+        }
+      } else if (cartItem.saleType !== "weighted" && (!Array.isArray(product.recipe) || !product.recipe.length)) {
         product.stock = roundStock(product.stock - cartItem.quantity);
       }
-      product.sold = roundStock(product.sold + Number(cartItem.quantity || cartItem.quantityKg || 0));
+      product.sold = roundStock(product.sold + Number(cartItem.stockDeductQuantity || cartItem.quantity || cartItem.quantityKg || 0));
     });
     recipeUsage.forEach((amountKg, materialId) => {
       const material = findProductById(materialId);
@@ -4572,7 +5197,7 @@ ${recentSales}`;
     const saleItems = items.map(({ cartItem, product }) => {
       const lineTotal = saleLineTotal(product, cartItem.quantity || cartItem.quantityKg, cartItem);
       const recipeCost = calculateCartRecipeCost(product, cartItem);
-      return {
+      const baseItem = {
         productId: product.id,
         productName: product.name,
         name: product.name,
@@ -4590,6 +5215,21 @@ ${recentSales}`;
         lineTotal,
         total: lineTotal
       };
+      if (cartItem.customAmountSale || cartItem.saleType === "custom-amount") {
+        return {
+          ...baseItem,
+          productName: cartItem.name,
+          name: cartItem.name,
+          saleType: "custom-amount",
+          customAmountSale: true,
+          originalProductId: cartItem.originalProductId || product.id,
+          note: cartItem.note || "",
+          stockDeductQuantity: cartItem.stockDeductQuantity || 0,
+          quantityKg: cartItem.quantityKg || null,
+          unitPrice: lineTotal
+        };
+      }
+      return baseItem;
     });
     const subtotal = saleItems.reduce((sum, item) => sum + item.total, 0);
     const discount = Math.min(Number(state.posDiscount || 0), subtotal);
@@ -4607,6 +5247,13 @@ ${recentSales}`;
       recipeCost,
       grossProfit: subtotal - discount - recipeCost,
       paymentMethod: method,
+      cashReceived: method === "Nakit" ? cashInfo.received : 0,
+      changeDue: method === "Nakit" ? cashInfo.changeDue : 0,
+      changeReturned: method === "Nakit" ? cashInfo.changeReturned : 0,
+      tipAmount: method === "Nakit" ? cashInfo.tipAmount : 0,
+      cashNetIn: method === "Nakit" ? subtotal - discount + cashInfo.tipAmount : 0,
+      customAmountSale: saleItems.some((item) => item.customAmountSale),
+      originalProductId: saleItems.length === 1 ? saleItems[0].originalProductId || null : null,
       source: "quick-pos",
       date: now.toISOString().slice(0, 10),
       time: now.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }),
@@ -4632,6 +5279,8 @@ ${recentSales}`;
     state.posCart = [];
     state.posDiscount = 0;
     state.posVeresiyeCustomerId = "";
+    state.posCashReceived = "";
+    state.posCashHandling = "returned";
     saveData();
     showToast("Sipariş tamamlandı");
     render();
@@ -4808,11 +5457,22 @@ ${recentSales}`;
   }
 
   function saleLineTotal(product, quantity, item = {}) {
+    if (item.customAmountSale || item.saleType === "custom-amount") return Number(item.lineTotal || 0);
     if (item.saleType === "weighted") return Number(item.lineTotal || 0);
     return ((Number(product?.price) || 0) + optionTotal(item.options)) * Number(quantity || 0);
   }
 
   function calculateCartRecipeCost(product, item) {
+    if (item.customAmountSale || item.saleType === "custom-amount") {
+      if (item.rawMaterialId && Number(item.quantityKg || item.stockDeductQuantity || 0) > 0) {
+        const raw = findProductById(item.rawMaterialId);
+        return Math.round(Number(item.quantityKg || item.stockDeductQuantity || 0) * (Number(raw?.purchasePrice) || 0) * 100) / 100;
+      }
+      if (Array.isArray(product?.recipe) && product.recipe.length && Number(item.stockDeductQuantity || item.quantity || 0) > 0) {
+        return calculateRecipeCost(product, item.stockDeductQuantity || item.quantity);
+      }
+      return 0;
+    }
     if (item.saleType === "weighted") {
       const raw = findProductById(item.rawMaterialId);
       const cost = Number(item.quantityKg || 0) * (Number(raw?.purchasePrice) || 0);
@@ -5127,6 +5787,21 @@ ${recentSales}`;
     const usageMap = new Map();
 
     items.forEach(({ cartItem, product }) => {
+      if (cartItem.customAmountSale || cartItem.saleType === "custom-amount") {
+        if (cartItem.rawMaterialId && Number(cartItem.quantityKg || cartItem.stockDeductQuantity || 0) > 0) {
+          const current = usageMap.get(cartItem.rawMaterialId) || 0;
+          usageMap.set(cartItem.rawMaterialId, roundStock(current + Number(cartItem.quantityKg || cartItem.stockDeductQuantity || 0)));
+          return;
+        }
+        if (!product || !Array.isArray(product.recipe) || !product.recipe.length) return;
+        product.recipe.forEach((recipeItem) => {
+          const amountKg = roundStock(recipeAmountToKg(recipeItem.amount, recipeItem.unit) * Number(cartItem.stockDeductQuantity || cartItem.quantity || 0));
+          const current = usageMap.get(recipeItem.materialId) || 0;
+          usageMap.set(recipeItem.materialId, roundStock(current + amountKg));
+        });
+        return;
+      }
+
       if (cartItem.saleType === "weighted") {
         const current = usageMap.get(cartItem.rawMaterialId) || 0;
         usageMap.set(cartItem.rawMaterialId, roundStock(current + Number(cartItem.quantityKg || 0)));
@@ -5261,5 +5936,12 @@ ${recentSales}`;
   if (state.data.products.length) state.selectedProductId = state.data.products[0].id;
 
   render();
+  bootstrapSupabase().catch((error) => {
+    console.error("[Supabase] init failed", error);
+    state.authLoading = false;
+    state.supabaseEnabled = false;
+    state.supabaseError = error.message;
+    render();
+  });
 })();
 

@@ -56,6 +56,13 @@ function sendJson(res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
+function handleConfig(req, res) {
+  sendJson(res, 200, {
+    supabaseUrl: process.env.SUPABASE_URL || "",
+    supabaseAnonKey: process.env.SUPABASE_ANON_KEY || ""
+  });
+}
+
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -198,12 +205,17 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === "GET" && pathname === "/api/config") {
+    handleConfig(req, res);
+    return;
+  }
+
   if (pathname.startsWith("/assets/")) {
     sendFile(res, path.join(publicDir, pathname));
     return;
   }
 
-  if (pathname === "/app.js" || pathname === "/styles.css") {
+  if (pathname === "/app.js" || pathname === "/styles.css" || pathname === "/supabase-client.js" || pathname === "/auth.js" || pathname === "/data-service.js" || pathname === "/offline-sync.js") {
     sendFile(res, path.join(publicDir, pathname));
     return;
   }

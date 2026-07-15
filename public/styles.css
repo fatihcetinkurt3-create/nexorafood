@@ -436,6 +436,44 @@ button {
   box-shadow: none;
 }
 
+.auth-shell {
+  display: grid;
+  place-items: start center;
+  min-height: calc(100vh - 120px);
+  padding: 24px;
+}
+
+.auth-panel {
+  width: min(760px, 100%);
+  padding: 22px;
+}
+
+.auth-switches,
+.sync-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.auth-switches {
+  margin-top: 14px;
+}
+
+.sync-banner {
+  margin-bottom: 14px;
+  padding: 14px 16px;
+}
+
+.sync-banner.success {
+  border-color: rgba(68, 214, 158, 0.45);
+}
+
+.sync-banner.warning {
+  border-color: rgba(255, 196, 87, 0.45);
+}
+
 .panel h3 {
   margin: 0 0 14px;
   font-size: 1.05rem;
@@ -849,7 +887,69 @@ textarea {
   align-items: start;
 }
 
-.quick-pos-products {
+.quick-pos-head-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.quick-pos-main {
+  display: grid;
+  gap: 14px;
+}
+
+.quick-pos-search input {
+  width: 100%;
+  min-height: 48px;
+}
+
+.quick-pos-categories {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.quick-pos-category-card {
+  display: grid;
+  gap: 5px;
+  min-height: 72px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+  text-align: left;
+}
+
+.quick-pos-category-card.active {
+  border-color: var(--green);
+  background: rgba(57, 217, 138, 0.12);
+}
+
+.quick-pos-category-card span,
+.quick-pos-group-head span {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.quick-pos-products,
+.quick-pos-group {
+  display: grid;
+  gap: 14px;
+}
+
+.quick-pos-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.quick-pos-group-head h3 {
+  margin: 0;
+}
+
+.quick-pos-product-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
@@ -878,6 +978,7 @@ textarea {
 }
 
 .quick-pos-card:hover,
+.quick-pos-category-card:hover,
 .quick-pos-mini-card:hover,
 .quick-pos-payment:hover {
   transform: translateY(-1px);
@@ -1044,6 +1145,7 @@ textarea {
 }
 
 .quick-pos-credit,
+.quick-pos-cash-panel,
 .quick-pos-modal-total {
   display: grid;
   gap: 8px;
@@ -1175,6 +1277,14 @@ th {
   }
 
   .quick-pos-products {
+    grid-template-columns: 1fr;
+  }
+
+  .quick-pos-categories {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .quick-pos-product-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1251,6 +1361,8 @@ th {
   .metrics,
   .product-grid,
   .quick-pos-products,
+  .quick-pos-categories,
+  .quick-pos-product-grid,
   .quick-pos-drinks,
   .quick-pos-discount-buttons,
   .quick-pos-fast-grid {
