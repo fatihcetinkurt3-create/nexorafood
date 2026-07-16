@@ -286,6 +286,16 @@
     if (!session?.user || !profile?.business_id) throw new Error("Supabase oturumu bulunamadi.");
     const businessId = profile.business_id;
 
+    const { error: businessError } = await client
+      .from("businesses")
+      .update({
+        name: data.businessName || "Nexora Food",
+        owner_name: data.ownerName || session.user.email,
+        phone: data.whatsappNumber || ""
+      })
+      .eq("id", businessId);
+    if (businessError) throw businessError;
+
     await client.from("business_settings").upsert({
       business_id: businessId,
       setup_completed: data.setupCompleted === true || data.configured === true,

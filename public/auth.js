@@ -60,6 +60,20 @@
     const session = await getSession();
     if (!session?.user) throw new Error("Oturum bulunamadi.");
 
+    const rpcPayload = {
+      p_business_name: form.businessName || session.user.user_metadata?.business_name || "Nexora Food",
+      p_owner_name: form.ownerName || session.user.user_metadata?.owner_name || session.user.email,
+      p_phone: form.phone || session.user.user_metadata?.phone || "",
+      p_full_name: form.fullName || form.ownerName || session.user.user_metadata?.full_name || session.user.email
+    };
+    const { data: ensuredProfile, error: ensureError } = await client.rpc("ensure_user_business", rpcPayload);
+    if (!ensureError && Array.isArray(ensuredProfile) && ensuredProfile[0]?.business_id) {
+      return ensuredProfile[0];
+    }
+    if (ensureError && ensureError.code !== "42883" && !String(ensureError.message || "").includes("ensure_user_business")) {
+      throw ensureError;
+    }
+
     const { data: existingProfile, error: profileError } = await client
       .from("profiles")
       .select("id,business_id,full_name,role")
@@ -71,6 +85,7 @@
     const { data: business, error: businessError } = await client
       .from("businesses")
       .insert({
+        owner_id: session.user.id,
         name: form.businessName || session.user.user_metadata?.business_name || "Nexora Food",
         owner_name: form.ownerName || session.user.user_metadata?.owner_name || session.user.email,
         phone: form.phone || session.user.user_metadata?.phone || ""
