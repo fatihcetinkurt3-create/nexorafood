@@ -30,9 +30,167 @@
     }
   }
 
+  function normalizeText(value) {
+    return String(value || "")
+      .trim()
+      .toLocaleLowerCase("tr-TR")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\s+/g, " ");
+  }
+
+  function stableNumber(value) {
+    const number = Number(value || 0);
+    return Number.isFinite(number) ? Math.round(number * 100) / 100 : 0;
+  }
+
+  function productSignature(product) {
+    return [
+      normalizeText(product.name),
+      normalizeText(product.category || "Genel"),
+      stableNumber(product.price ?? product.sale_price),
+      normalizeText(product.unit || product.stock_unit || "Adet")
+    ].join("|");
+  }
+
+  function isObject(value) {
+    return value && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function looksLikeProduct(value) {
+    if (!isObject(value) || !value.name) return false;
+    return [
+      "price",
+      "sale_price",
+      "salePrice",
+      "purchasePrice",
+      "purchase_price",
+      "stock",
+      "stock_quantity",
+      "unit",
+      "stock_unit",
+      "category"
+    ].some((key) => Object.prototype.hasOwnProperty.call(value, key));
+  }
+
+  function normalizeProductCandidate(product) {
+    if (!looksLikeProduct(product)) return null;
+    const name = String(product.name || "").trim();
+    if (!name) return null;
+    return {
+      ...product,
+      id: product.id,
+      name,
+      category: product.category || product.group || "Genel",
+      type: product.type || product.product_type || "sale",
+      price: stableNumber(product.price ?? product.sale_price ?? product.salePrice),
+      purchasePrice: stableNumber(product.purchasePrice ?? product.purchase_price),
+      stock: stableNumber(product.stock ?? product.stock_quantity ?? product.quantity),
+      unit: product.unit || product.stock_unit || "Adet",
+      criticalLevel: stableNumber(product.criticalLevel ?? product.critical_stock),
+      active: product.active !== false,
+      metadata: product.metadata || {}
+    };
+  }
+
+  function mergeUniqueBySignature(target, candidates) {
+    candidates.forEach((candidate) => {
+      const normalized = normalizeProductCandidate(candidate);
+      if (!normalized) return;
+      const signature = productSignature(normalized);
+      if (!signature.startsWith("|") && !target.has(signature)) {
+        target.set(signature, normalized);
+      }
+    });
+  }
+
+  function collectLegacyDataFromValue(value, key, result, depth = 0) {
+    if (depth > 5 || value == null) return;
+
+    if (Array.isArray(value)) {
+      const keyLooksProductish = /product|urun|ürün/i.test(key || "");
+      const productCandidates = value.filter(looksLikeProduct);
+      if (keyLooksProductish || productCandidates.length >= Math.max(1, Math.floor(value.length * 0.6))) {
+        mergeUniqueBySignature(result.productsBySignature, productCandidates);
+      }
+      return;
+    }
+
+    if (!isObject(value)) return;
+
+    Object.entries(value).forEach(([childKey, childValue]) => {
+      if (!Array.isArray(childValue)) {
+        collectLegacyDataFromValue(childValue, childKey, result, depth + 1);
+        return;
+      }
+
+      const lowerKey = childKey.toLocaleLowerCase("tr-TR");
+      if (/products|productlist|urunler|ürünler|items/.test(lowerKey)) {
+        mergeUniqueBySignature(result.productsBySignature, childValue);
+      } else if (/sales|satis|satış/.test(lowerKey)) {
+        result.sales.push(...childValue.filter(isObject));
+      } else if (/stockmovements|stock_movements|stok|movement/.test(lowerKey)) {
+        result.stockMovements.push(...childValue.filter(isObject));
+      } else if (/expenses|gider/.test(lowerKey)) {
+        result.expenses.push(...childValue.filter(isObject));
+      }
+    });
+
+    ["businessName", "ownerName", "whatsappNumber", "categories", "paymentMethods"].forEach((field) => {
+      if (result.meta[field] === undefined && value[field] !== undefined) {
+        result.meta[field] = value[field];
+      }
+    });
+  }
+
+  function scanLocalStorageData() {
+    const result = {
+      productsBySignature: new Map(),
+      sales: [],
+      stockMovements: [],
+      expenses: [],
+      meta: {},
+      sources: []
+    };
+
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      const raw = key ? localStorage.getItem(key) : null;
+      if (!key || !raw) continue;
+
+      let parsed = null;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        continue;
+      }
+
+      const lowerKey = key.toLocaleLowerCase("tr-TR");
+      const keyLooksRelevant = /nexora|food|owner|setup|urun|ürün|product|stock|stok|expense|gider|sale|satis|satış/.test(lowerKey);
+      const beforeCount = result.productsBySignature.size + result.sales.length + result.stockMovements.length + result.expenses.length;
+      collectLegacyDataFromValue(parsed, key, result);
+      const afterCount = result.productsBySignature.size + result.sales.length + result.stockMovements.length + result.expenses.length;
+      if (keyLooksRelevant || afterCount > beforeCount) {
+        result.sources.push(key);
+      }
+    }
+
+    return {
+      ...emptyData(),
+      ...result.meta,
+      configured: true,
+      setupCompleted: true,
+      products: Array.from(result.productsBySignature.values()),
+      sales: result.sales,
+      stockMovements: result.stockMovements,
+      expenses: result.expenses,
+      sources: [...new Set(result.sources)]
+    };
+  }
+
   function hasLegacyData() {
-    const legacy = parseStorage(LEGACY_STORAGE_KEY, null);
-    return Boolean(legacy && (Array.isArray(legacy.products) || Array.isArray(legacy.sales) || legacy.setupCompleted || legacy.configured));
+    const scanned = scanLocalStorageData();
+    return hasOperationalData(scanned);
   }
 
   function migrationDone(businessId) {
@@ -47,7 +205,7 @@
   }
 
   function productToDb(product, businessId) {
-    return {
+    const payload = {
       id: product.id && /^[0-9a-f-]{36}$/i.test(product.id) ? product.id : undefined,
       business_id: businessId,
       name: product.name || "",
@@ -72,6 +230,11 @@
         supportsDoritos: product.supportsDoritos
       }
     };
+    if (payload.metadata && product.metadata && typeof product.metadata === "object") {
+      payload.metadata = { ...product.metadata, ...payload.metadata };
+    }
+    payload.metadata.localSignature = productSignature(product);
+    return payload;
   }
 
   function productFromDb(row) {
@@ -344,6 +507,110 @@
     };
   }
 
+  function dbProductSignature(row) {
+    return productSignature({
+      name: row.name,
+      category: row.category || "Genel",
+      price: row.sale_price,
+      unit: row.stock_unit || "Adet"
+    });
+  }
+
+  function productPayloadChanged(existing, payload) {
+    return (
+      String(existing.name || "") !== String(payload.name || "") ||
+      String(existing.category || "") !== String(payload.category || "") ||
+      String(existing.product_type || "") !== String(payload.product_type || "") ||
+      stableNumber(existing.sale_price) !== stableNumber(payload.sale_price) ||
+      stableNumber(existing.purchase_price) !== stableNumber(payload.purchase_price) ||
+      stableNumber(existing.stock_quantity) !== stableNumber(payload.stock_quantity) ||
+      String(existing.stock_unit || "") !== String(payload.stock_unit || "") ||
+      stableNumber(existing.critical_stock) !== stableNumber(payload.critical_stock) ||
+      existing.active !== payload.active ||
+      existing.metadata?.legacyId !== payload.metadata?.legacyId
+    );
+  }
+
+  async function syncProductsBySignature(client, businessId, products = []) {
+    const { data: existingProducts, error } = await client
+      .from("products")
+      .select("*")
+      .eq("business_id", businessId);
+    if (error) throw error;
+
+    const existingBySignature = new Map();
+    const existingByLegacyId = new Map();
+    (existingProducts || []).forEach((product) => {
+      existingBySignature.set(product.metadata?.localSignature || dbProductSignature(product), product);
+      if (product.metadata?.legacyId) existingByLegacyId.set(String(product.metadata.legacyId), product);
+    });
+
+    const localBySignature = new Map();
+    (products || []).forEach((product) => {
+      const normalized = normalizeProductCandidate(product);
+      if (!normalized) return;
+      const signature = productSignature(normalized);
+      if (!localBySignature.has(signature)) localBySignature.set(signature, normalized);
+    });
+
+    const summary = {
+      localProductCount: localBySignature.size,
+      remoteProductCountBefore: (existingProducts || []).length,
+      inserted: 0,
+      updated: 0,
+      skippedDuplicates: 0,
+      remoteProductCountAfter: (existingProducts || []).length
+    };
+
+    for (const product of localBySignature.values()) {
+      const payload = productToDb(product, businessId);
+      const signature = payload.metadata.localSignature;
+      const legacyMatch = payload.metadata.legacyId ? existingByLegacyId.get(String(payload.metadata.legacyId)) : null;
+      const signatureMatch = existingBySignature.get(signature);
+      const match = legacyMatch || signatureMatch;
+
+      if (match) {
+        const updatePayload = { ...payload, id: undefined };
+        delete updatePayload.id;
+        if (productPayloadChanged(match, updatePayload)) {
+          const { data: updatedProduct, error: updateError } = await client
+            .from("products")
+            .update(updatePayload)
+            .eq("id", match.id)
+            .select("*")
+            .single();
+          if (updateError) throw updateError;
+          summary.updated += 1;
+          existingBySignature.set(signature, updatedProduct);
+          if (updatedProduct.metadata?.legacyId) existingByLegacyId.set(String(updatedProduct.metadata.legacyId), updatedProduct);
+        } else {
+          summary.skippedDuplicates += 1;
+        }
+        continue;
+      }
+
+      const { data: insertedProduct, error: insertError } = await client
+        .from("products")
+        .insert(payload)
+        .select("*")
+        .single();
+      if (insertError) throw insertError;
+      summary.inserted += 1;
+      summary.remoteProductCountAfter += 1;
+      existingBySignature.set(signature, insertedProduct);
+      if (insertedProduct.metadata?.legacyId) existingByLegacyId.set(String(insertedProduct.metadata.legacyId), insertedProduct);
+    }
+
+    const { count, error: countError } = await client
+      .from("products")
+      .select("id", { count: "exact", head: true })
+      .eq("business_id", businessId)
+      .eq("active", true);
+    if (countError) throw countError;
+    summary.remoteProductCountAfter = count ?? summary.remoteProductCountAfter;
+    return summary;
+  }
+
   async function syncAllData(data) {
     const client = window.NexoraSupabase.getSupabaseClient();
     const session = await window.NexoraAuth.getSession();
@@ -363,15 +630,12 @@
 
     await upsertBusinessSettings(client, businessId, data);
 
-    for (const product of data.products || []) {
-      const payload = productToDb(product, businessId);
-      const { error } = await client.from("products").upsert(payload, { onConflict: "id" });
-      if (error) throw error;
-    }
+    const productSummary = await syncProductsBySignature(client, businessId, data.products || []);
 
     for (const sale of data.sales || []) {
       const salePayload = saleToDb(sale, businessId, session.user.id);
-      const { data: savedSale, error } = await client.from("sales").upsert(salePayload, { onConflict: "id" }).select("id").single();
+      const saleConflict = salePayload.id ? "id" : salePayload.client_generated_id ? "business_id,client_generated_id" : "id";
+      const { data: savedSale, error } = await client.from("sales").upsert(salePayload, { onConflict: saleConflict }).select("id").single();
       if (error) throw error;
       if (Array.isArray(sale.items) && sale.items.length) {
         await client.from("sale_items").delete().eq("sale_id", savedSale.id);
@@ -382,7 +646,7 @@
     }
 
     for (const movement of data.stockMovements || []) {
-      const { error } = await client.from("stock_movements").insert({
+      const payload = {
         business_id: businessId,
         product_id: movement.productId && /^[0-9a-f-]{36}$/i.test(movement.productId) ? movement.productId : null,
         movement_type: movement.entryType || movement.movementType || "stock_in",
@@ -392,32 +656,43 @@
         supplier: movement.supplier || "",
         invoice_number: movement.invoiceNumber || movement.invoice || "",
         note: movement.note || "",
-        metadata: movement
-      });
+        metadata: movement,
+        client_generated_id: movement.client_generated_id || movement.id || null
+      };
+      const query = payload.client_generated_id
+        ? client.from("stock_movements").upsert(payload, { onConflict: "business_id,client_generated_id" })
+        : client.from("stock_movements").insert(payload);
+      const { error } = await query;
       if (error) throw error;
     }
 
     for (const expense of data.expenses || []) {
-      const { error } = await client.from("expenses").insert({
+      const payload = {
         business_id: businessId,
         name: expense.name,
         category: expense.category,
         amount: Number(expense.amount || 0),
         payment_method: expense.paymentMethod || "Nakit",
         expense_date: expense.date || new Date().toISOString().slice(0, 10),
-        note: expense.note || ""
-      });
+        note: expense.note || "",
+        client_generated_id: expense.client_generated_id || expense.id || null
+      };
+      const query = payload.client_generated_id
+        ? client.from("expenses").upsert(payload, { onConflict: "business_id,client_generated_id" })
+        : client.from("expenses").insert(payload);
+      const { error } = await query;
       if (error) throw error;
     }
 
-    return { ok: true };
+    return { ok: true, productSummary };
   }
 
   async function migrateLegacyData() {
     const profile = await getProfile();
     if (!profile?.business_id) throw new Error("Isletme profili bulunamadi.");
     if (migrationDone(profile.business_id)) return { ok: true, skipped: true };
-    const legacy = parseStorage(LEGACY_STORAGE_KEY, emptyData());
+    const scanned = scanLocalStorageData();
+    const legacy = hasOperationalData(scanned) ? scanned : parseStorage(LEGACY_STORAGE_KEY, emptyData());
     const legacySetupCompleted = legacy.setupCompleted === true || legacy.configured === true || hasOperationalData(legacy);
     const merged = {
       ...emptyData(),
@@ -425,10 +700,29 @@
       configured: legacySetupCompleted,
       setupCompleted: legacySetupCompleted
     };
-    await syncAllData(merged);
+    const syncResult = await syncAllData(merged);
     markMigrated(profile.business_id);
     localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify({ ...legacy, migratedToSupabase: true }));
-    return { ok: true };
+    return { ok: true, summary: syncResult.productSummary, sources: legacy.sources || [] };
+  }
+
+  async function rescanAndRepairLocalData() {
+    const profile = await getProfile();
+    if (!profile?.business_id) throw new Error("Isletme profili bulunamadi.");
+
+    const scanned = scanLocalStorageData();
+    if (!hasOperationalData(scanned)) {
+      throw new Error("localStorage icinde aktarilacak Nexora Food verisi bulunamadi.");
+    }
+
+    const syncResult = await syncAllData(scanned);
+    markMigrated(profile.business_id);
+    localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify({ ...scanned, migratedToSupabase: true }));
+    return {
+      ok: true,
+      summary: syncResult.productSummary,
+      sources: scanned.sources || []
+    };
   }
 
   function subscribeRealtime(onChange) {
@@ -452,6 +746,7 @@
     loadBusinessData,
     syncAllData,
     migrateLegacyData,
+    rescanAndRepairLocalData,
     subscribeRealtime,
     getProfile
   };

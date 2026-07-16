@@ -232,14 +232,18 @@
   }
 
   function migrationBanner() {
-    if (!state.migrationAvailable) return "";
+    const repairAvailable = Boolean(state.supabaseEnabled && state.authSession && window.NexoraDataService?.hasLegacyData?.());
+    if (!state.migrationAvailable && !repairAvailable) return "";
     return `
       <section class="panel sync-banner warning">
         <div>
           <strong>Bu cihazda eski localStorage verileri bulundu.</strong>
-          <span>Verileri bu işletme hesabına yalnızca bir kez aktarabilirsin. Eski yedek silinmez.</span>
+          <span>Eksik kalan ürünleri ve operasyon kayıtlarını Supabase hesabına güvenli şekilde aktarabilirsin.</span>
         </div>
-        <button class="button primary" type="button" id="migrateLocalData">Bu cihazdaki verileri hesabıma aktar</button>
+        <div class="notification-actions">
+          ${state.migrationAvailable ? `<button class="button primary" type="button" id="migrateLocalData">Bu cihazdaki verileri hesabıma aktar</button>` : ""}
+          ${repairAvailable ? `<button class="button" type="button" id="repairLocalData">Yerel verileri yeniden tara ve eksikleri aktar</button>` : ""}
+        </div>
       </section>
     `;
   }
@@ -2255,6 +2259,7 @@
     bindClick("saveSettings", saveSettings);
     bindClick("logoutSupabase", handleSupabaseLogout);
     bindClick("migrateLocalData", handleMigrateLocalData);
+    bindClick("repairLocalData", handleRepairLocalData);
     bindClick("resetSetup", resetSetup);
     bindClick("dashboardVeresiyeCard", () => {
       state.page = "Veresiye";
@@ -2376,10 +2381,10 @@
       state.syncBusy = true;
       state.syncStatus = "LocalStorage verileri aktarılıyor...";
       render();
-      await window.NexoraDataService.migrateLegacyData();
+      const result = await window.NexoraDataService.migrateLegacyData();
       state.migrationAvailable = false;
       await hydrateFromSupabase();
-      showToast("Bu cihazdaki veriler Supabase hesabına aktarıldı.");
+      showToast(formatMigrationSummary(result.summary) || "Bu cihazdaki veriler Supabase hesabına aktarıldı.");
     } catch (error) {
       console.error("[Migration] failed", error);
       showToast(`Aktarım hatası: ${error.message}`);
@@ -2387,6 +2392,36 @@
       state.syncBusy = false;
       render();
     }
+  }
+
+  async function handleRepairLocalData() {
+    try {
+      state.syncBusy = true;
+      state.syncStatus = "Yerel veriler yeniden taranıyor...";
+      render();
+      const result = await window.NexoraDataService.rescanAndRepairLocalData();
+      state.migrationAvailable = false;
+      await hydrateFromSupabase();
+      showToast(formatMigrationSummary(result.summary) || "Yerel veriler yeniden tarandı ve eksikler aktarıldı.");
+    } catch (error) {
+      console.error("[Migration repair] failed", error);
+      showToast(`Eksik aktarım hatası: ${error.message}`);
+    } finally {
+      state.syncBusy = false;
+      render();
+    }
+  }
+
+  function formatMigrationSummary(summary) {
+    if (!summary) return "";
+    return [
+      `Yerel ürün: ${summary.localProductCount}`,
+      `Supabase önce: ${summary.remoteProductCountBefore}`,
+      `Yeni: ${summary.inserted}`,
+      `Güncellenen: ${summary.updated}`,
+      `Atlanan duplicate: ${summary.skippedDuplicates}`,
+      `Supabase şimdi: ${summary.remoteProductCountAfter}`
+    ].join(" | ");
   }
 
   async function hydrateFromSupabase() {
