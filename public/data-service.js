@@ -172,6 +172,44 @@
     };
   }
 
+  function isSetupComplete(data = {}) {
+    return data.setupCompleted === true || data.configured === true;
+  }
+
+  function hasOperationalData(data = {}) {
+    return Boolean(
+      (Array.isArray(data.products) && data.products.length) ||
+      (Array.isArray(data.sales) && data.sales.length) ||
+      (Array.isArray(data.stockMovements) && data.stockMovements.length) ||
+      (Array.isArray(data.expenses) && data.expenses.length)
+    );
+  }
+
+  function settingsPayload(data, businessId) {
+    return {
+      business_id: businessId,
+      setup_completed: isSetupComplete(data),
+      whatsapp_number: data.whatsappNumber || "",
+      payment_methods: Array.isArray(data.paymentMethods) && data.paymentMethods.length ? data.paymentMethods : ["Nakit", "POS", "Online", "IBAN"],
+      settings: {
+        categories: Array.isArray(data.categories) ? data.categories : [],
+        businessName: data.businessName || "",
+        ownerName: data.ownerName || ""
+      },
+      updated_at: new Date().toISOString()
+    };
+  }
+
+  async function upsertBusinessSettings(client, businessId, data) {
+    const { data: savedSettings, error } = await client
+      .from("business_settings")
+      .upsert(settingsPayload(data, businessId), { onConflict: "business_id" })
+      .select("*")
+      .single();
+    if (error) throw error;
+    return savedSettings;
+  }
+
   async function getProfile() {
     const client = window.NexoraSupabase.getSupabaseClient();
     const session = await window.NexoraAuth.getSession();
@@ -224,14 +262,41 @@
     const business = profile.businesses || {};
     const settings = settingsRes.data || {};
     const products = (productsRes.data || []).map(productFromDb);
+    const remoteHasOperationalData = Boolean(
+      products.length ||
+      (salesRes.data || []).length ||
+      (stockRes.data || []).length ||
+      (expensesRes.data || []).length
+    );
+    const setupCompleted = settings.setup_completed === true || remoteHasOperationalData;
+    const settingsJson = settings.settings && typeof settings.settings === "object" ? settings.settings : {};
+    const categories = Array.isArray(settingsJson.categories) && settingsJson.categories.length
+      ? settingsJson.categories
+      : [...new Set(products.map((product) => product.category).filter(Boolean))];
+    const paymentMethods = Array.isArray(settings.payment_methods) && settings.payment_methods.length
+      ? settings.payment_methods
+      : ["Nakit", "POS", "Online", "IBAN"];
+
+    if (!settingsRes.data || (setupCompleted && settings.setup_completed !== true)) {
+      await upsertBusinessSettings(client, businessId, {
+        configured: setupCompleted,
+        setupCompleted,
+        businessName: business.name || settingsJson.businessName || "",
+        ownerName: business.owner_name || settingsJson.ownerName || profile.full_name || "",
+        whatsappNumber: settings.whatsapp_number || business.phone || "",
+        categories,
+        paymentMethods
+      });
+    }
+
     const data = {
-      configured: settings.setup_completed === true,
-      setupCompleted: settings.setup_completed === true,
-      businessName: business.name || "",
-      ownerName: business.owner_name || profile.full_name || "",
+      configured: setupCompleted,
+      setupCompleted,
+      businessName: business.name || settingsJson.businessName || "",
+      ownerName: business.owner_name || settingsJson.ownerName || profile.full_name || "",
       whatsappNumber: settings.whatsapp_number || business.phone || "",
-      categories: [...new Set(products.map((product) => product.category).filter(Boolean))],
-      paymentMethods: Array.isArray(settings.payment_methods) ? settings.payment_methods : ["Nakit", "POS", "Online", "IBAN"],
+      categories,
+      paymentMethods,
       products,
       sales: (salesRes.data || []).map((sale) => saleFromDb(sale, itemsBySale[sale.id] || [])),
       stockMovements: (stockRes.data || []).map((row) => ({
@@ -275,7 +340,7 @@
     return {
       data,
       profile,
-      hasRemoteData: products.length || data.sales.length || data.expenses.length || data.stockMovements.length
+      hasRemoteData: remoteHasOperationalData
     };
   }
 
@@ -296,18 +361,7 @@
       .eq("id", businessId);
     if (businessError) throw businessError;
 
-    await client.from("business_settings").upsert({
-      business_id: businessId,
-      setup_completed: data.setupCompleted === true || data.configured === true,
-      whatsapp_number: data.whatsappNumber || "",
-      payment_methods: Array.isArray(data.paymentMethods) ? data.paymentMethods : [],
-      settings: {
-        categories: data.categories || [],
-        businessName: data.businessName || "",
-        ownerName: data.ownerName || ""
-      },
-      updated_at: new Date().toISOString()
-    });
+    await upsertBusinessSettings(client, businessId, data);
 
     for (const product of data.products || []) {
       const payload = productToDb(product, businessId);
@@ -364,7 +418,13 @@
     if (!profile?.business_id) throw new Error("Isletme profili bulunamadi.");
     if (migrationDone(profile.business_id)) return { ok: true, skipped: true };
     const legacy = parseStorage(LEGACY_STORAGE_KEY, emptyData());
-    const merged = { ...emptyData(), ...legacy };
+    const legacySetupCompleted = legacy.setupCompleted === true || legacy.configured === true || hasOperationalData(legacy);
+    const merged = {
+      ...emptyData(),
+      ...legacy,
+      configured: legacySetupCompleted,
+      setupCompleted: legacySetupCompleted
+    };
     await syncAllData(merged);
     markMigrated(profile.business_id);
     localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify({ ...legacy, migratedToSupabase: true }));
