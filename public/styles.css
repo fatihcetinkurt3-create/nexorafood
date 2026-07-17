@@ -1434,9 +1434,42 @@ th {
   flex-wrap: wrap;
 }
 
+.import-panel,
+.backup-panel {
+  margin-bottom: 14px;
+}
+
+.import-table select {
+  min-width: 180px;
+}
+
+.danger-row {
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.backup-restore-preview {
+  display: grid;
+  gap: 12px;
+}
+
+.danger-button {
+  border-color: rgba(239, 68, 68, 0.45);
+  color: var(--danger);
+}
+
 @media (max-width: 760px) {
   .cash-reconcile-row {
     grid-template-columns: 1fr;
+  }
+
+  .import-panel .top-actions,
+  .backup-panel .top-actions {
+    align-items: stretch;
+  }
+
+  .import-panel .button,
+  .backup-panel .button {
+    min-height: 44px;
   }
 }
 

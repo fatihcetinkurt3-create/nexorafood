@@ -349,6 +349,7 @@
   }
 
   function settingsPayload(data, businessId) {
+    const backupMeta = data.backupMeta && typeof data.backupMeta === "object" ? data.backupMeta : {};
     return {
       business_id: businessId,
       setup_completed: isSetupComplete(data),
@@ -357,7 +358,8 @@
       settings: {
         categories: Array.isArray(data.categories) ? data.categories : [],
         businessName: data.businessName || "",
-        ownerName: data.ownerName || ""
+        ownerName: data.ownerName || "",
+        backupMeta
       },
       updated_at: new Date().toISOString()
     };
@@ -460,6 +462,7 @@
       whatsappNumber: settings.whatsapp_number || business.phone || "",
       categories,
       paymentMethods,
+      backupMeta: settingsJson.backupMeta || {},
       products,
       sales: (salesRes.data || []).map((sale) => saleFromDb(sale, itemsBySale[sale.id] || [])),
       stockMovements: (stockRes.data || []).map((row) => ({
@@ -687,6 +690,86 @@
     return { ok: true, productSummary };
   }
 
+  async function getClientContext() {
+    const client = window.NexoraSupabase.getSupabaseClient();
+    const session = await window.NexoraAuth.getSession();
+    const profile = await getProfile();
+    if (!client || !session?.user || !profile?.business_id) {
+      throw new Error("Supabase oturumu ve isletme profili gerekli.");
+    }
+    return { client, session, profile, businessId: profile.business_id };
+  }
+
+  async function fetchBusinessProducts(includeInactive = true) {
+    const { client, businessId } = await getClientContext();
+    let query = client.from("products").select("*").eq("business_id", businessId).order("created_at");
+    if (!includeInactive) query = query.eq("active", true);
+    const { data, error } = await query;
+    if (error) throw error;
+    return data || [];
+  }
+
+  async function saveImportedProducts(products = [], options = {}) {
+    const { client, businessId } = await getClientContext();
+    const summary = { inserted: 0, updated: 0, skipped: 0, failed: 0, rows: [] };
+    const batchSize = Number(options.batchSize || 100);
+    const chunks = [];
+    for (let index = 0; index < products.length; index += batchSize) {
+      chunks.push(products.slice(index, index + batchSize));
+    }
+
+    for (const chunk of chunks) {
+      for (const item of chunk) {
+        try {
+          const product = item.product || item;
+          if (item.action === "skip") {
+            summary.skipped += 1;
+            summary.rows.push({ rowNumber: item.rowNumber, ok: true, action: "skip", name: product.name });
+            continue;
+          }
+          const payload = productToDb(product, businessId);
+          const existingId = item.match?.id || (product.supabaseId && /^[0-9a-f-]{36}$/i.test(product.supabaseId) ? product.supabaseId : null);
+          if (existingId && item.action !== "insert") {
+            delete payload.id;
+            const { error } = await client.from("products").update(payload).eq("id", existingId).eq("business_id", businessId);
+            if (error) throw error;
+            summary.updated += 1;
+            summary.rows.push({ rowNumber: item.rowNumber, ok: true, action: "update", name: product.name });
+          } else {
+            const { error } = await client.from("products").insert(payload);
+            if (error) throw error;
+            summary.inserted += 1;
+            summary.rows.push({ rowNumber: item.rowNumber, ok: true, action: "insert", name: product.name });
+          }
+        } catch (error) {
+          summary.failed += 1;
+          summary.rows.push({ rowNumber: item.rowNumber, ok: false, action: item.action, name: item.product?.name || "", error: error.message });
+        }
+      }
+    }
+    return summary;
+  }
+
+  async function updateBackupMeta(meta = {}) {
+    const { client, businessId } = await getClientContext();
+    const { data: current, error: readError } = await client
+      .from("business_settings")
+      .select("settings")
+      .eq("business_id", businessId)
+      .maybeSingle();
+    if (readError) throw readError;
+    const settings = current?.settings && typeof current.settings === "object" ? current.settings : {};
+    const { error } = await client
+      .from("business_settings")
+      .upsert({
+        business_id: businessId,
+        settings: { ...settings, backupMeta: { ...(settings.backupMeta || {}), ...meta } },
+        updated_at: new Date().toISOString()
+      }, { onConflict: "business_id" });
+    if (error) throw error;
+    return { ...(settings.backupMeta || {}), ...meta };
+  }
+
   async function migrateLegacyData() {
     const profile = await getProfile();
     if (!profile?.business_id) throw new Error("Isletme profili bulunamadi.");
@@ -748,6 +831,12 @@
     migrateLegacyData,
     rescanAndRepairLocalData,
     subscribeRealtime,
-    getProfile
+    getProfile,
+    getClientContext,
+    fetchBusinessProducts,
+    saveImportedProducts,
+    updateBackupMeta,
+    productToDb,
+    productFromDb
   };
 })();

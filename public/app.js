@@ -72,6 +72,8 @@
     supabaseError: "",
     syncStatus: "",
     syncBusy: false,
+    productImportPreview: null,
+    backupRestoreDraft: null,
     migrationAvailable: false,
     realtimeChannel: null,
     offline: !navigator.onLine,
@@ -528,13 +530,22 @@
   }
 
   function productsPage() {
+    const importPreview = state.productImportPreview;
     return `
       <div class="section-head">
         <div>
           <p class="eyebrow">Isletme sahibinin urunleri</p>
           <h2>Urunler</h2>
         </div>
+        <div class="top-actions">
+          <input id="productImportFile" type="file" accept=".xlsx,.xls,.csv" hidden />
+          <button class="button" id="downloadProductTemplate" type="button">Ornek Sablonu Indir</button>
+          <button class="button" id="openProductImport" type="button">Excel / CSV Ice Aktar</button>
+          <button class="button" id="exportProductsExcel" type="button">Excel'e Aktar</button>
+          <button class="button" id="exportProductsCsv" type="button">CSV'ye Aktar</button>
+        </div>
       </div>
+      ${importPreview ? productImportPreviewPanel(importPreview) : ""}
       <div class="split">
         <section class="panel">
           <h3>Yeni urun</h3>
@@ -813,6 +824,9 @@
   }
 
   function settingsPage() {
+    const backupMeta = state.data.backupMeta || {};
+    const needsBackup = window.NexoraBackupService?.needsBackupWarning?.(backupMeta);
+    const restoreDraft = state.backupRestoreDraft;
     return `
       <div class="section-head">
         <div>
@@ -838,6 +852,90 @@
           </div>
         </form>
       </section>
+      <section class="panel backup-panel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Yedekleme</p>
+            <h2>Tam Yedek</h2>
+          </div>
+          <div class="top-actions">
+            <input id="restoreBackupFile" type="file" accept=".json" hidden />
+            <button class="button" id="downloadFullBackup" type="button">Tam Yedek Indir</button>
+            <button class="button" id="openRestoreBackup" type="button">Yedegi Geri Yukle</button>
+          </div>
+        </div>
+        ${needsBackup ? `<div class="sync-banner warning"><strong>Yedek onerisi</strong><span>Son 7 gun icinde manuel yedek alinmamis. Otomatik indirme baslatilmaz.</span></div>` : `<div class="sync-banner success"><strong>Yedek guncel</strong><span>Son yedek: ${escapeHtml(new Date(backupMeta.lastManualBackupAt).toLocaleString("tr-TR"))}</span></div>`}
+        ${restoreDraft ? backupRestorePreviewPanel(restoreDraft) : ""}
+      </section>
+    `;
+  }
+
+  function productImportPreviewPanel(preview) {
+    const rows = preview.items.slice(0, 25).map((item) => `
+      <tr class="${item.errors.length ? "danger-row" : ""}">
+        <td>${item.rowNumber}</td>
+        <td>${escapeHtml(item.product.name || "-")}</td>
+        <td>${escapeHtml(item.product.category || "Genel")}</td>
+        <td>${formatTRY(item.product.price || 0)}</td>
+        <td>${item.errors.length ? escapeHtml(item.errors.join(", ")) : escapeHtml(item.warnings.join(", ") || "Hazir")}</td>
+        <td>
+          ${item.match && !item.errors.length ? `
+            <select data-import-action="${item.rowNumber}">
+              <option value="update" ${item.action === "update" ? "selected" : ""}>Mevcut urunu guncelle</option>
+              <option value="skip" ${item.action === "skip" ? "selected" : ""}>Atla</option>
+              <option value="insert" ${item.action === "insert" ? "selected" : ""}>Yeni urun olarak ekle</option>
+            </select>
+          ` : escapeHtml(item.action)}
+        </td>
+      </tr>
+    `).join("");
+    return `
+      <section class="panel import-panel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Ice aktarma onizleme</p>
+            <h2>${preview.counts.total} satir</h2>
+          </div>
+          <div class="top-actions">
+            <button class="button primary" id="confirmProductImport" type="button">Onayla ve Supabase'e Yaz</button>
+            <button class="button" id="cancelProductImport" type="button">Vazgec</button>
+          </div>
+        </div>
+        <div class="grid metrics">
+          ${metric("Toplam satir", String(preview.counts.total))}
+          ${metric("Gecerli kayit", String(preview.counts.valid))}
+          ${metric("Hatali kayit", String(preview.counts.invalid))}
+          ${metric("Yeni eklenecek", String(preview.counts.insert))}
+          ${metric("Guncellenecek", String(preview.counts.update))}
+          ${metric("Atlanacak duplicate", String(preview.counts.skip))}
+        </div>
+        <div class="table-wrap import-table">
+          <table>
+            <thead><tr><th>Satir</th><th>Urun</th><th>Kategori</th><th>Fiyat</th><th>Durum</th><th>Islem</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </section>
+    `;
+  }
+
+  function backupRestorePreviewPanel(draft) {
+    const summary = draft.validation.summary;
+    return `
+      <div class="backup-restore-preview">
+        <div class="grid metrics">
+          ${metric("Urun", String(summary.products))}
+          ${metric("Satis", String(summary.sales))}
+          ${metric("Gider", String(summary.expenses))}
+          ${metric("Stok hareketi", String(summary.stockMovements))}
+          ${metric("Veresiye kaydi", String(summary.creditAccounts))}
+        </div>
+        <div class="top-actions">
+          <button class="button primary" id="restoreBackupMerge" type="button">Mevcut verilerle birlestir</button>
+          <button class="button danger-button" id="restoreBackupReplace" type="button">Mevcut verileri silip yedegi yukle</button>
+          <button class="button" id="cancelBackupRestore" type="button">Vazgec</button>
+        </div>
+      </div>
     `;
   }
 
@@ -2178,6 +2276,112 @@
     modal.querySelector("#openVeresiyePaymentForm")?.addEventListener("click", () => openVeresiyePaymentModal(customerId));
   }
 
+  async function handleProductImportFile(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      showToast("Dosya okunuyor, onizleme hazirlaniyor...");
+      const preview = await window.NexoraImportExport.previewFile(file, state.data.products || []);
+      state.productImportPreview = preview;
+      showToast("Onizleme hazir. Onay vermeden Supabase'e yazilmaz.");
+      render();
+    } catch (error) {
+      showToast(`Ice aktarma hatasi: ${error.message}`);
+    }
+  }
+
+  function handleDownloadProductTemplate() {
+    try {
+      window.NexoraImportExport.downloadTemplate();
+    } catch (error) {
+      showToast(`Sablon indirilemedi: ${error.message}`);
+    }
+  }
+
+  function handleExportProducts(type) {
+    try {
+      window.NexoraImportExport.exportProducts(state.data.products || [], type);
+      showToast(type === "csv" ? "CSV disa aktarildi." : "Excel disa aktarildi.");
+    } catch (error) {
+      showToast(`Disa aktarma hatasi: ${error.message}`);
+    }
+  }
+
+  async function handleConfirmProductImport() {
+    if (!state.productImportPreview) return;
+    const validItems = state.productImportPreview.items.filter((item) => !item.errors.length && item.action !== "invalid");
+    if (!validItems.length) {
+      showToast("Ice aktarilacak gecerli satir yok.");
+      return;
+    }
+    try {
+      state.syncBusy = true;
+      showToast("Urunler Supabase'e aktariliyor...");
+      const summary = await window.NexoraDataService.saveImportedProducts(validItems);
+      state.productImportPreview = null;
+      await hydrateFromSupabase();
+      showToast(`Ice aktarma tamamlandi. Yeni: ${summary.inserted} | Guncel: ${summary.updated} | Atlanan: ${summary.skipped} | Hatali: ${summary.failed}`);
+    } catch (error) {
+      showToast(`Ice aktarma hatasi: ${error.message}`);
+    } finally {
+      state.syncBusy = false;
+      render();
+    }
+  }
+
+  async function handleDownloadFullBackup() {
+    try {
+      showToast("Tam yedek hazirlaniyor...");
+      const metadata = await window.NexoraBackupService.createFullBackup("1.0.0");
+      state.data.backupMeta = { ...(state.data.backupMeta || {}), lastManualBackupAt: metadata.createdAt };
+      localStorage.setItem(storageKey, JSON.stringify(state.data));
+      showToast("Tam JSON yedek indirildi.");
+      render();
+    } catch (error) {
+      showToast(`Yedek alinamadi: ${error.message}`);
+    }
+  }
+
+  async function handleBackupFile(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const draft = await window.NexoraBackupService.readBackupFile(file);
+      state.backupRestoreDraft = draft;
+      showToast("Yedek dogrulandi. Geri yukleme turunu secin.");
+      render();
+    } catch (error) {
+      showToast(`Yedek dosyasi hatasi: ${error.message}`);
+    }
+  }
+
+  async function handleRestoreBackup(mode) {
+    if (!state.backupRestoreDraft?.payload) return;
+    if (mode === "replace") {
+      const first = window.confirm("Mevcut isletme verileri silinip yedek yuklenecek. Devam edilsin mi?");
+      if (!first) return;
+      const second = window.confirm("Son onay: Bu islem mevcut urun, satis, stok, gider ve veresiye kayitlarini silecek.");
+      if (!second) return;
+    }
+    try {
+      state.syncBusy = true;
+      showToast(mode === "replace" ? "Veriler silinip yedek yukleniyor..." : "Yedek mevcut verilerle birlestiriliyor...");
+      const report = await window.NexoraBackupService.restoreBackup(state.backupRestoreDraft.payload, mode);
+      state.backupRestoreDraft = null;
+      await hydrateFromSupabase();
+      const failedTable = Object.entries(report.tables).find(([, value]) => value.ok === false);
+      showToast(failedTable ? `Geri yukleme kismi tamamlandi, hata: ${failedTable[0]}` : "Yedek geri yuklendi.");
+    } catch (error) {
+      const failedTable = error.report ? Object.entries(error.report.tables).find(([, value]) => value.ok === false) : null;
+      showToast(`Geri yukleme hatasi${failedTable ? ` (${failedTable[0]})` : ""}: ${error.message}`);
+    } finally {
+      state.syncBusy = false;
+      render();
+    }
+  }
+
   function bindEvents() {
     bindAuthEvents();
 
@@ -2253,6 +2457,23 @@
       loadSampleProducts(state.data.products);
       saveData();
     });
+    bindClick("downloadProductTemplate", handleDownloadProductTemplate);
+    bindClick("openProductImport", () => document.getElementById("productImportFile")?.click());
+    bindClick("exportProductsExcel", () => handleExportProducts("xlsx"));
+    bindClick("exportProductsCsv", () => handleExportProducts("csv"));
+    bindClick("confirmProductImport", handleConfirmProductImport);
+    bindClick("cancelProductImport", () => {
+      state.productImportPreview = null;
+      render();
+    });
+    bindClick("downloadFullBackup", handleDownloadFullBackup);
+    bindClick("openRestoreBackup", () => document.getElementById("restoreBackupFile")?.click());
+    bindClick("restoreBackupMerge", () => handleRestoreBackup("merge"));
+    bindClick("restoreBackupReplace", () => handleRestoreBackup("replace"));
+    bindClick("cancelBackupRestore", () => {
+      state.backupRestoreDraft = null;
+      render();
+    });
     bindClick("saveSale", recordSale);
     bindClick("saveStockEntry", recordStockEntry);
     bindClick("saveExpense", recordExpense);
@@ -2282,6 +2503,24 @@
     if (state.page === "Gün Sonu Kasa") {
       bindCashClosingEvents();
     }
+
+    const importFile = document.getElementById("productImportFile");
+    if (importFile) importFile.addEventListener("change", handleProductImportFile);
+
+    const restoreFile = document.getElementById("restoreBackupFile");
+    if (restoreFile) restoreFile.addEventListener("change", handleBackupFile);
+
+    document.querySelectorAll("[data-import-action]").forEach((select) => {
+      select.addEventListener("change", () => {
+        if (!state.productImportPreview) return;
+        const rowNumber = Number(select.dataset.importAction);
+        const item = state.productImportPreview.items.find((entry) => entry.rowNumber === rowNumber);
+        if (!item) return;
+        item.action = select.value;
+        state.productImportPreview = window.NexoraImportExport.summarizePreview(state.productImportPreview.items);
+        render();
+      });
+    });
 
     document.querySelectorAll("[data-remove-setup]").forEach((button) => {
       button.addEventListener("click", () => {
