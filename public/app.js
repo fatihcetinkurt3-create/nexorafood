@@ -70,6 +70,7 @@
     authProfile: null,
     supabaseEnabled: false,
     supabaseError: "",
+    authCallbackHandled: false,
     syncStatus: "",
     syncBusy: false,
     productImportPreview: null,
@@ -2682,6 +2683,7 @@
     localStorage.setItem(storageKey, JSON.stringify(state.data));
     state.migrationAvailable = !remote.hasRemoteData && window.NexoraDataService.hasLegacyData() && !window.NexoraDataService.migrationDone(remote.profile.business_id);
     state.syncStatus = "Supabase verileri yüklendi.";
+    if (isSetupCompleted()) state.page = "Dashboard";
     setupRealtimeSync();
     render();
   }
@@ -2735,6 +2737,20 @@
     if (!client) {
       render();
       return;
+    }
+
+    const callbackResult = await window.NexoraAuth.handleAuthCallback();
+    state.authCallbackHandled = callbackResult.handled;
+    if (callbackResult.handled && !callbackResult.ok) {
+      state.authSession = null;
+      state.syncStatus = `Email doğrulama hatası: ${callbackResult.error.message}`;
+      showToast(state.syncStatus);
+      render();
+      return;
+    }
+    if (callbackResult.session) {
+      state.authSession = callbackResult.session;
+      if (callbackResult.handled) state.syncStatus = "Email doğrulandı, oturum açıldı.";
     }
 
     client.auth.onAuthStateChange(async (_event, session) => {

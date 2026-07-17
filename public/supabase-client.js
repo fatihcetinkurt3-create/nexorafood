@@ -27,7 +27,8 @@
         auth: {
           persistSession: true,
           autoRefreshToken: true,
-          detectSessionInUrl: true
+          detectSessionInUrl: true,
+          flowType: "pkce"
         }
       });
       state.ready = true;
