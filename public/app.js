@@ -4,6 +4,7 @@
   const PRODUCTION_STORAGE_KEY = "nexoraProductionRecords";
   const WASTE_STORAGE_KEY = "nexoraWasteRecords";
   const CASH_CLOSING_STORAGE_KEY = "nexoraCashClosings";
+  const DORITOS_EXTRA_PRICE = 25;
   const fallbackPaymentMethods = ["Nakit", "POS", "Online", "IBAN"];
   const stockUnits = ["Adet", "Koli", "Kg", "Gram", "Litre"];
   const productTypes = [
@@ -5706,7 +5707,7 @@ ${recentSales}`;
       state.posCart.push({
         key,
         productId: product.id,
-        name: product.name,
+        name: `${product.name}${options.some((option) => option.id === "doritos") ? " + Doritos" : ""}`,
         quantity: 1,
         unitPrice: product.price,
         options,
@@ -5720,30 +5721,33 @@ ${recentSales}`;
   function openQuickPosDurumModal(product) {
     console.log("[QuickPOS] modal opening");
     const modal = openModal(product.name, `
-      <form id="quickPosDurumForm">
-        <label class="quick-pos-check">
-          <input id="quickPosDoritos" type="checkbox" />
-          <span>Doritos (+25 TL)</span>
-        </label>
-        <div class="quick-pos-modal-total">
-          <span>Toplam</span>
-          <strong id="quickPosDurumTotal">${formatTRY(product.price)}</strong>
-        </div>
-        <div class="modal-actions">
-          <button type="button" class="button" data-close-modal>İptal</button>
-          <button type="submit" class="button primary">Sepete Ekle</button>
-        </div>
-      </form>
+      <div class="quick-pos-option-choice">
+        <button type="button" class="quick-pos-choice-card" data-quick-durum-option="normal">
+          <strong>Normal</strong>
+          <span>${formatTRY(product.price)}</span>
+        </button>
+        <button type="button" class="quick-pos-choice-card" data-quick-durum-option="doritos">
+          <strong>Doritoslu</strong>
+          <span>${formatTRY(product.price + DORITOS_EXTRA_PRICE)}</span>
+          <small>+${formatTRY(DORITOS_EXTRA_PRICE)}</small>
+        </button>
+      </div>
+      <div class="quick-pos-modal-total">
+        <span>Seçenek</span>
+        <strong>Normal veya Doritoslu</strong>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="button" data-close-modal>İptal</button>
+      </div>
     `);
-    const checkbox = modal.querySelector("#quickPosDoritos");
-    const totalElement = modal.querySelector("#quickPosDurumTotal");
-    checkbox?.addEventListener("change", () => {
-      if (totalElement) totalElement.textContent = formatTRY(product.price + (checkbox.checked ? 25 : 0));
-    });
-    modal.querySelector("#quickPosDurumForm")?.addEventListener("submit", (event) => {
-      event.preventDefault();
-      addQuickPosStandardProduct(product, checkbox?.checked ? [{ id: "doritos", name: "Doritos", price: 25 }] : []);
-      closeActiveModal();
+    modal.querySelectorAll("[data-quick-durum-option]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const options = button.dataset.quickDurumOption === "doritos"
+          ? [{ id: "doritos", name: "Doritos", price: DORITOS_EXTRA_PRICE }]
+          : [];
+        addQuickPosStandardProduct(product, options);
+        closeActiveModal();
+      });
     });
   }
 
@@ -6011,7 +6015,7 @@ ${recentSales}`;
           return;
         }
         if (product.saleType === "weighted") openQuickPosFirikModal(product);
-        else if (product.supportsDoritos) openQuickPosDurumModal(product);
+        else if (isDoritosEligibleDurum(product)) openQuickPosDurumModal(product);
         else addQuickPosStandardProduct(product, []);
       });
     });
@@ -6162,20 +6166,15 @@ ${recentSales}`;
         stockChanges.push({ product: material, quantity: -amountKg, previousStock, newStock: material.stock, movementType: "satis" });
       }
     });
-    const doritos = findDoritosStockProduct();
-    if (doritos) {
-      const doritosNeeded = items.reduce((sum, item) => sum + (hasCartDoritos(item.cartItem) ? Number(item.cartItem.quantity || 0) : 0), 0);
-      doritos.stock = roundStock(Number(doritos.stock || 0) - doritosNeeded);
-    }
-
     const now = new Date();
     const saleItems = items.map(({ cartItem, product }) => {
       const lineTotal = saleLineTotal(product, cartItem.quantity || cartItem.quantityKg, cartItem);
       const recipeCost = calculateCartRecipeCost(product, cartItem);
+      const displayName = hasCartDoritos(cartItem) ? `${product.name} + Doritos` : product.name;
       const baseItem = {
         productId: product.id,
-        productName: product.name,
-        name: product.name,
+        productName: displayName,
+        name: displayName,
         saleType: cartItem.saleType || "standard",
         quantity: cartItem.quantity || cartItem.quantityKg,
         quantityKg: cartItem.quantityKg || null,
@@ -6306,6 +6305,12 @@ ${recentSales}`;
     return state.data.products.find((product) => product.type === "sale" && normalizeBusinessName(product.name) === target);
   }
 
+  function isDoritosEligibleDurum(product) {
+    if (!product || product.saleType === "weighted" || isRawMaterial(product)) return false;
+    const text = normalizeBusinessName(`${product.name || ""} ${product.category || ""}`);
+    return text.includes("durum") || text.includes("dürüm");
+  }
+
   function isWrongFirikDurum(product) {
     return product?.type === "sale" && /firik/.test(normalizeBusinessName(product.name)) && /durum/.test(normalizeBusinessName(product.name));
   }
@@ -6401,7 +6406,7 @@ ${recentSales}`;
     const [productId, optionId] = String(value || "").split("::");
     return {
       productId,
-      options: optionId === "doritos" ? [{ id: "doritos", name: "Doritos", price: 25 }] : []
+      options: optionId === "doritos" ? [{ id: "doritos", name: "Doritos", price: DORITOS_EXTRA_PRICE }] : []
     };
   }
 
@@ -6446,12 +6451,7 @@ ${recentSales}`;
       return Math.round(cost * 100) / 100;
     }
 
-    let cost = calculateRecipeCost(product, item.quantity);
-    if (hasCartDoritos(item)) {
-      const doritos = findDoritosStockProduct();
-      cost += Number(item.quantity || 0) * (Number(doritos?.purchasePrice) || 0);
-    }
-    return Math.round(cost * 100) / 100;
+    return Math.round(calculateRecipeCost(product, item.quantity) * 100) / 100;
   }
 
   function formatWeightedAmount(item) {
@@ -6507,10 +6507,10 @@ ${recentSales}`;
       `;
     }
 
-    const doritosButtons = product.supportsDoritos ? `
+    const doritosButtons = isDoritosEligibleDurum(product) ? `
       <div class="product-card-actions">
         <button class="button compact" type="button" data-cart-add="${product.id}">Standart</button>
-        <button class="button compact" type="button" data-cart-add="${product.id}::doritos">Doritoslu +${formatTRY(25)}</button>
+        <button class="button compact" type="button" data-cart-add="${product.id}::doritos">Doritoslu +${formatTRY(DORITOS_EXTRA_PRICE)}</button>
       </div>
     ` : "";
 
@@ -6745,10 +6745,11 @@ ${recentSales}`;
     }
 
     const optionText = hasCartDoritos(item) ? "Doritoslu" : "Standart";
+    const displayName = hasCartDoritos(item) ? `${product.name} + Doritos` : product.name;
     return `
       <div class="cart-row">
         <div>
-          <strong>${escapeHtml(product.name)}</strong>
+          <strong>${escapeHtml(displayName)}</strong>
           <div class="muted">${optionText} - ${item.quantity} ${escapeHtml(product.unit)} - ${formatTRY(item.lineTotal || saleLineTotal(product, item.quantity, item))}</div>
         </div>
         <div class="cart-stepper">
@@ -6800,13 +6801,6 @@ ${recentSales}`;
   }
 
   function validateDoritosStock(items) {
-    const doritos = findDoritosStockProduct();
-    if (!doritos) return [];
-
-    const needed = items.reduce((total, item) => total + (hasCartDoritos(item.cartItem) ? Number(item.cartItem.quantity || 0) : 0), 0);
-    if (needed > 0 && Number(doritos.stock || 0) < needed) {
-      return [`Doritos eksik: gerekli ${needed}, mevcut ${doritos.stock || 0}`];
-    }
     return [];
   }
 
@@ -6863,21 +6857,16 @@ ${recentSales}`;
       }
     });
 
-    const doritos = findDoritosStockProduct();
-    if (doritos) {
-      const doritosNeeded = items.reduce((total, item) => total + (hasCartDoritos(item.cartItem) ? Number(item.cartItem.quantity || 0) : 0), 0);
-      doritos.stock = roundStock(Number(doritos.stock || 0) - doritosNeeded);
-    }
-
     const now = new Date();
     const saleItems = items.map(({ cartItem, product }) => {
       const lineTotal = saleLineTotal(product, cartItem.quantity || cartItem.quantityKg, cartItem);
       const recipeCost = calculateCartRecipeCost(product, cartItem);
+      const displayName = hasCartDoritos(cartItem) ? `${product.name} + Doritos` : product.name;
 
       return {
         productId: product.id,
-        productName: product.name,
-        name: product.name,
+        productName: displayName,
+        name: displayName,
         saleType: cartItem.saleType || "standard",
         quantity: cartItem.quantity || cartItem.quantityKg,
         quantityKg: cartItem.quantityKg || null,

@@ -1192,6 +1192,38 @@ textarea {
   font-size: 1.6rem;
 }
 
+.quick-pos-option-choice {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.quick-pos-choice-card {
+  min-height: 92px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  display: grid;
+  gap: 6px;
+  place-items: center;
+  padding: 14px;
+  cursor: pointer;
+}
+
+.quick-pos-choice-card strong {
+  font-size: 1rem;
+}
+
+.quick-pos-choice-card span {
+  color: var(--green);
+  font-weight: 900;
+}
+
+.quick-pos-choice-card small {
+  color: var(--muted);
+}
+
 .quick-pos-fast-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-bottom: 10px;
@@ -1519,6 +1551,14 @@ th {
   .table-actions .button {
     width: 100%;
     min-height: 44px;
+  }
+
+  .quick-pos-option-choice {
+    grid-template-columns: 1fr;
+  }
+
+  .quick-pos-choice-card {
+    min-height: 76px;
   }
 }
 
