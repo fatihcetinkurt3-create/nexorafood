@@ -10,6 +10,12 @@
     { id: "sale", label: "Satış ürünü" },
     { id: "raw", label: "Hammadde" }
   ];
+  const stockTrackingTypes = [
+    { id: "ready_product", label: "Hazır Ürün" },
+    { id: "recipe", label: "Reçeteli Ürün" },
+    { id: "none", label: "Stok Takibi Yok" }
+  ];
+  const ingredientUnits = ["Kg", "Gram", "Adet"];
   const rawMaterialDefaults = [
     { name: "Firik", category: "Hammadde", unit: "Kg", purchasePrice: 280, stock: 0, criticalLevel: 1 },
     { name: "Çiğköfte", category: "Hammadde", unit: "Kg", purchasePrice: 0, stock: 0, criticalLevel: 1 }
@@ -20,6 +26,7 @@
     { id: "Gün Sonu Kasa", label: "Gün Sonu Kasa" },
     { id: "Satis Yap", label: "💰 Satış Yap" },
     { id: "Urunler", label: "📦 Ürünler" },
+    { id: "Hammaddeler", label: "Hammaddeler" },
     { id: "Stok Girişi", label: "📥 Stok Girişi" },
     { id: "Zayiat ve Sayım", label: "Zayiat ve Sayım" },
     { id: "Odemeler", label: "💳 Ödemeler" },
@@ -112,7 +119,10 @@
       products: [],
       sales: [],
       stockMovements: [],
-      expenses: []
+      expenses: [],
+      settings: {
+        insufficientStockPolicy: "block"
+      }
     };
   }
 
@@ -132,7 +142,8 @@
         products: Array.isArray(saved.products) ? saved.products : [],
         sales: Array.isArray(saved.sales) ? saved.sales : [],
         stockMovements: Array.isArray(saved.stockMovements) ? saved.stockMovements : [],
-        expenses: Array.isArray(saved.expenses) ? saved.expenses : []
+        expenses: Array.isArray(saved.expenses) ? saved.expenses : [],
+        settings: saved.settings && typeof saved.settings === "object" ? saved.settings : {}
       });
     } catch (error) {
       return emptyData();
@@ -399,6 +410,7 @@
     if (state.page === "Gün Sonu Kasa") return cashClosingPage();
     if (state.page === "Satis Yap") return salePage();
     if (state.page === "Urunler") return productsPage();
+    if (state.page === "Hammaddeler") return ingredientsPage();
     if (state.page === "Stok Girişi") return stockEntryPage();
     if (state.page === "Zayiat ve Sayım") return productionWastePage();
     if (state.page === "Stoklar") return stocksPage(summary);
@@ -567,6 +579,113 @@
     `;
   }
 
+  function ingredientsPage() {
+    const ingredients = state.data.products.filter(isRawMaterial);
+    const critical = ingredients.filter((item) => Number(item.stock || 0) <= Number(item.criticalLevel || 0));
+    return `
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Hammadde stoku ve reçete altyapısı</p>
+          <h2>Hammaddeler</h2>
+        </div>
+        <span class="button">${critical.length} kritik hammadde</span>
+      </div>
+      <div class="split">
+        <section class="panel">
+          <h3>Yeni hammadde</h3>
+          <form id="ingredientForm">
+            <div class="form-grid two">
+              ${field("ingredientName", "Hammadde adı", "", "Lavaş")}
+              ${field("ingredientStock", "Stok miktarı", "", "100", "number")}
+              <div class="field">
+                <label for="ingredientUnit">Birim</label>
+                <select id="ingredientUnit">
+                  ${ingredientUnits.map((unit) => `<option value="${unit}">${unit}</option>`).join("")}
+                </select>
+              </div>
+              ${field("ingredientCritical", "Kritik stok seviyesi", "", "20", "number")}
+              ${field("ingredientUnitCost", "Alış birim maliyeti", "", "2.5", "number")}
+              <div class="field">
+                <label for="ingredientActive">Durum</label>
+                <select id="ingredientActive">
+                  <option value="true">Aktif</option>
+                  <option value="false">Pasif</option>
+                </select>
+              </div>
+            </div>
+            <button class="button primary" id="saveIngredient" type="button" style="width:100%;">Hammadde Ekle</button>
+          </form>
+        </section>
+        <section class="panel">
+          <h3>Stok girişi / düzeltme</h3>
+          <form id="ingredientMovementForm">
+            <div class="form-grid two">
+              <div class="field">
+                <label for="ingredientMovementId">Hammadde</label>
+                <select id="ingredientMovementId">
+                  ${ingredients.map((item) => `<option value="${escapeAttribute(item.id)}">${escapeHtml(item.name)} - ${formatIngredientAmount(item.stock, item.unit)}</option>`).join("")}
+                </select>
+              </div>
+              <div class="field">
+                <label for="ingredientMovementType">İşlem</label>
+                <select id="ingredientMovementType">
+                  <option value="stok_girisi">Stok girişi</option>
+                  <option value="duzeltme">Stok düzeltme</option>
+                  <option value="fire">Fire</option>
+                </select>
+              </div>
+              ${field("ingredientMovementAmount", "Miktar", "", "5", "number")}
+              ${field("ingredientMovementCost", "Alış birim maliyeti", "", "0", "number")}
+            </div>
+            <div class="field">
+              <label for="ingredientMovementNote">Açıklama</label>
+              <textarea id="ingredientMovementNote" rows="3" placeholder="Fatura, sayım veya fire notu"></textarea>
+            </div>
+            <button class="button primary" id="saveIngredientMovement" type="button" style="width:100%;">Hareket Kaydet</button>
+          </form>
+        </section>
+      </div>
+      <section class="panel" style="margin-top:14px;">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Kayıtlı hammaddeler</p>
+            <h2>${ingredients.length} hammadde</h2>
+          </div>
+          <button class="button" id="applyRecipeWizard" type="button">Hazır dürüm reçetelerini uygula</button>
+        </div>
+        ${ingredients.length ? ingredientsTable(ingredients) : empty("Henüz hammadde eklenmedi.")}
+      </section>
+      <section class="panel" style="margin-top:14px;">
+        <h3>Hareket geçmişi</h3>
+        ${stockMovementsTable(state.data.stockMovements.filter((movement) => movement.ingredientId || movement.productId))}
+      </section>
+    `;
+  }
+
+  function ingredientsTable(ingredients) {
+    return `
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Hammadde</th><th>Stok</th><th>Birim</th><th>Kritik</th><th>Alış maliyeti</th><th>Durum</th></tr>
+          </thead>
+          <tbody>
+            ${ingredients.map((item) => `
+              <tr>
+                <td><strong>${escapeHtml(item.name)}</strong></td>
+                <td class="${Number(item.stock || 0) <= Number(item.criticalLevel || 0) ? "danger" : ""}">${formatIngredientAmount(item.stock, item.unit)}</td>
+                <td>${escapeHtml(normalizeIngredientUnit(item.unit))}</td>
+                <td>${formatIngredientAmount(item.criticalLevel, item.unit)}</td>
+                <td>${formatTRY(item.purchasePrice || 0)}</td>
+                <td>${item.active === false ? "Pasif" : "Aktif"}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
   function stockEntryPage() {
     if (!state.data.products.length) {
       return `
@@ -714,13 +833,39 @@
       </div>
       <section class="panel" style="margin-top: 14px;">
         <h3>Odeme hareketleri</h3>
-        ${summary.recentSales.length ? summary.recentSales.map((sale) => listRow(sale.productName, sale.paymentMethod, money.format(sale.total))).join("") : empty("Henuz odeme hareketi yok.")}
+        ${salesHistoryTable(state.data.sales)}
       </section>
+    `;
+  }
+
+  function salesHistoryTable(sales) {
+    if (!sales.length) return empty("Henuz odeme hareketi yok.");
+    return `
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Tarih</th><th>Satış</th><th>Ödeme</th><th>Tutar</th><th>Durum</th><th></th></tr>
+          </thead>
+          <tbody>
+            ${[...sales].reverse().slice(0, 50).map((sale) => `
+              <tr>
+                <td>${escapeHtml(sale.date || "")} ${escapeHtml(sale.time || "")}</td>
+                <td>${escapeHtml(saleLabel(sale))}</td>
+                <td>${escapeHtml(sale.paymentMethod || "-")}</td>
+                <td>${formatTRY(sale.total || 0)}</td>
+                <td>${isCanceledSale(sale) ? "İptal" : "Aktif"}</td>
+                <td><button class="button compact danger-button" type="button" data-cancel-sale="${escapeAttribute(sale.id)}" ${isCanceledSale(sale) || sale.stockMovementsReversed ? "disabled" : ""}>İptal / Geri Al</button></td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
     `;
   }
 
   function reportsPage(summary) {
     const productionWasteSummary = getProductionWasteSummary();
+    const ingredientReport = getIngredientReport();
     const categoryTotals = state.data.products.reduce((acc, product) => {
       acc[product.category] = (acc[product.category] || 0) + product.sold * product.price;
       return acc;
@@ -753,6 +898,16 @@
         <section class="panel">
           <h3>Gunluk gider ozeti</h3>
           ${Object.keys(summary.expenseDailyTotals).length ? Object.entries(summary.expenseDailyTotals).map(([day, total]) => reportRow(day, money.format(total))).join("") : empty("Henuz gider yok.")}
+        </section>
+        <section class="panel">
+          <h3>Hammadde ve reçete özeti</h3>
+          ${ingredientReport.consumedTodayRows.length ? ingredientReport.consumedTodayRows.join("") : empty("Bugün reçeteli hammadde tüketimi yok.")}
+          ${reportRow("Kritik hammaddeler", ingredientReport.criticalCount)}
+          ${reportRow("Tahmini yapılabilir dürüm", `${ingredientReport.durumCapacity} adet`)}
+        </section>
+        <section class="panel">
+          <h3>Ürün maliyeti ve tahmini kâr</h3>
+          ${ingredientReport.recipeCostRows.length ? ingredientReport.recipeCostRows.join("") : empty("Maliyet için reçeteli ürün tanımlayın.")}
         </section>
         <section class="panel">
           <h3>Gider kategorilerine gore toplamlar</h3>
@@ -846,6 +1001,13 @@
           <div class="field">
             <label for="categories">Urun kategorileri</label>
             <textarea id="categories" rows="3">${escapeHtml(state.data.categories.join(", "))}</textarea>
+          </div>
+          <div class="field">
+            <label for="insufficientStockPolicy">Yetersiz stok davranışı</label>
+            <select id="insufficientStockPolicy">
+              <option value="block" ${state.data.settings?.insufficientStockPolicy !== "warn" ? "selected" : ""}>Yetersiz stokta satışı engelle</option>
+              <option value="warn" ${state.data.settings?.insufficientStockPolicy === "warn" ? "selected" : ""}>Uyar ama satışa izin ver</option>
+            </select>
           </div>
           <div class="notification-actions">
             <button class="button primary" id="saveSettings" type="button">Ayarlari Kaydet</button>
@@ -953,6 +1115,12 @@
             </select>
           </div>
           <div class="field">
+            <label for="${prefix}StockTrackingType">Stok Takip Türü</label>
+            <select id="${prefix}StockTrackingType">
+              ${stockTrackingTypes.map((type) => `<option value="${type.id}">${escapeHtml(type.label)}</option>`).join("")}
+            </select>
+          </div>
+          <div class="field">
             <label for="${prefix}Category">Kategori</label>
             <input id="${prefix}Category" list="${prefix}CategoryList" value="${escapeAttribute(categoryOptions[0] || "Genel")}" placeholder="Icecek" />
             <datalist id="${prefix}CategoryList">
@@ -968,13 +1136,13 @@
           </div>
           ${field(`${prefix}Stock`, "Baslangic stogu", "", "20", "number")}
           ${field(`${prefix}Critical`, "Kritik stok seviyesi", "", "5", "number")}
-          ${field(`${prefix}PurchasePrice`, "Kg alis fiyati", "", "280", "number")}
+          ${field(`${prefix}PurchasePrice`, "Alış birim maliyeti", "", "280", "number")}
           ${field(`${prefix}PackageSize`, "Koli ici adet", "", "24", "number")}
           ${field(`${prefix}Supplier`, "Tedarikci adi", "", "Ana tedarikci")}
         </div>
         <div class="field">
           <label for="${prefix}Recipe">Recete</label>
-          <textarea id="${prefix}Recipe" rows="4" placeholder="Firik: 40 gram&#10;Çiğköfte: 120 gram"></textarea>
+          <textarea id="${prefix}Recipe" rows="4" placeholder="Çiğköfte: 100 gram&#10;Lavaş: 1 adet"></textarea>
         </div>
         <div class="field">
           <label for="${prefix}Note">Not</label>
@@ -1036,7 +1204,7 @@
       expenseCategoryTotals,
       expenseDailyTotals,
       bestSeller: soldProducts[0] || null,
-      criticalStocks: state.data.products.filter((product) => Number(product.stock) <= Number(product.criticalLevel)),
+      criticalStocks: state.data.products.filter((product) => (isRawMaterial(product) || isReadyProduct(product)) && Number(product.stock) <= Number(product.criticalLevel)),
       recentSales: [...state.data.sales].slice(-7).reverse(),
       topProducts: soldProducts.slice(0, 7)
     };
@@ -1355,13 +1523,14 @@
       <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>Urun</th><th>Tip</th><th>Kategori</th><th>Fiyat</th><th>Birim</th><th>Stok</th><th>Kritik</th><th>Maliyet</th><th>Tedarikci</th><th></th></tr>
+            <tr><th>Urun</th><th>Tip</th><th>Stok Takibi</th><th>Kategori</th><th>Fiyat</th><th>Birim</th><th>Stok</th><th>Kritik</th><th>Maliyet</th><th>Tedarikci</th><th></th></tr>
           </thead>
           <tbody>
             ${products.map((product) => `
               <tr>
                 <td>${escapeHtml(product.name)}</td>
                 <td>${getProductTypeLabel(product)}</td>
+                <td>${getStockTrackingLabel(product)}</td>
                 <td>${escapeHtml(product.category)}</td>
                 <td>${money.format(product.price)}</td>
                 <td>${escapeHtml(product.unit)}</td>
@@ -1458,6 +1627,41 @@
     return `<div class="report-row"><span>${escapeHtml(left)}</span><strong>${escapeHtml(String(right))}</strong></div>`;
   }
 
+  function getIngredientReport() {
+    const today = new Date().toISOString().slice(0, 10);
+    const ingredients = state.data.products.filter(isRawMaterial);
+    const consumedToday = state.data.stockMovements
+      .filter((movement) => movement.movementType === "satis" && String(movement.date || "").slice(0, 10) === today && movement.ingredientId)
+      .reduce((acc, movement) => {
+        const ingredient = findProductById(movement.ingredientId);
+        if (!ingredient) return acc;
+        acc[ingredient.id] = (acc[ingredient.id] || 0) + Math.abs(Number(movement.quantity || movement.amount || 0));
+        return acc;
+      }, {});
+    const consumedTodayRows = Object.entries(consumedToday).map(([ingredientId, amount]) => {
+      const ingredient = findProductById(ingredientId);
+      return reportRow(`Bugün tüketilen ${ingredient?.name || "hammadde"}`, formatIngredientAmount(amount, ingredient?.unit || "Kg"));
+    });
+    const durumProducts = state.data.products.filter((product) => isRecipeProduct(product) && /durum|dürüm/i.test(normalizeBusinessName(product.name)));
+    const durumCapacity = durumProducts.length
+      ? Math.max(0, Math.min(...durumProducts.map((product) => Math.floor(calculateAvailableRecipeQuantity(product)))))
+      : 0;
+    const recipeCostRows = state.data.products
+      .filter((product) => isRecipeProduct(product) && Array.isArray(product.recipe) && product.recipe.length)
+      .slice(0, 8)
+      .map((product) => {
+        const cost = calculateRecipeCost(product);
+        const profit = Number(product.price || 0) - cost;
+        return reportRow(product.name, `Maliyet ${formatTRY(cost)} | Tahmini kâr ${formatTRY(profit)}`);
+      });
+    return {
+      consumedTodayRows,
+      criticalCount: ingredients.filter((item) => Number(item.stock || 0) <= Number(item.criticalLevel || 0)).length,
+      durumCapacity,
+      recipeCostRows
+    };
+  }
+
   function recentSales(sales) {
     if (!sales.length) return empty("Henuz satis yok.");
     return sales.map((sale) => `
@@ -1514,12 +1718,63 @@
     return !isRawMaterial(product);
   }
 
+  function normalizeIngredientUnit(unit) {
+    const normalized = String(unit || "Kg").toLocaleLowerCase("tr-TR");
+    if (["gram", "gr", "g"].includes(normalized)) return "Gram";
+    if (["adet", "piece", "pcs"].includes(normalized)) return "Adet";
+    return "Kg";
+  }
+
+  function normalizeRecipeUnit(unit) {
+    const normalized = String(unit || "gram").toLocaleLowerCase("tr-TR");
+    if (["kg", "kilogram"].includes(normalized)) return "kilogram";
+    if (["adet", "piece", "pcs"].includes(normalized)) return "adet";
+    return "gram";
+  }
+
+  function shouldInferReadyProduct(product) {
+    const text = normalizeBusinessName(`${product?.name || ""} ${product?.category || ""}`);
+    if (Number(product?.stock || product?.stock_quantity || 0) <= 0) return false;
+    return /(ayran|kola|su|salgam|soda|meyve suyu|dondurma|icecek|içecek)/.test(text);
+  }
+
+  function isReadyProduct(product) {
+    return product?.stockTrackingType === "ready_product";
+  }
+
+  function isRecipeProduct(product) {
+    return product?.stockTrackingType === "recipe" || product?.saleType === "weighted";
+  }
+
+  function isStockTrackedProduct(product) {
+    return isReadyProduct(product) || isRecipeProduct(product);
+  }
+
   function normalizeProduct(product) {
     const name = String(product?.name || "");
     const defaultRaw = rawMaterialDefaults.find((item) => item.name.toLocaleLowerCase("tr-TR") === name.toLocaleLowerCase("tr-TR"));
     const type = product?.type === "raw" || product?.type === "hammadde" ? "raw" : "sale";
-    const unit = type === "raw" ? "Kg" : (product?.unit || "Adet");
+    const unit = type === "raw" ? normalizeIngredientUnit(product?.unit || defaultRaw?.unit || "Kg") : (product?.unit || "Adet");
     const purchasePrice = Number(product?.purchasePrice ?? product?.costPerKg ?? defaultRaw?.purchasePrice ?? 0) || 0;
+    const incomingTracking = product?.stockTrackingType || product?.stock_tracking_type;
+    const recipe = Array.isArray(product?.recipe)
+      ? product.recipe
+          .filter((item) => item && (item.materialId || item.ingredientId) && Number(item.amount ?? item.quantity) > 0)
+          .map((item) => ({
+            materialId: item.materialId || item.ingredientId,
+            amount: Number(item.amount ?? item.quantity) || 0,
+            unit: normalizeRecipeUnit(item.unit || "gram")
+          }))
+      : [];
+    const stockTrackingType = type === "raw"
+      ? "ingredient"
+      : ["ready_product", "recipe", "none"].includes(incomingTracking)
+        ? incomingTracking
+        : recipe.length || product?.saleType === "weighted"
+          ? "recipe"
+          : shouldInferReadyProduct(product)
+            ? "ready_product"
+            : "none";
 
     return {
       ...product,
@@ -1537,15 +1792,9 @@
       supplier: product?.supplier || "",
       note: product?.note || "",
       sold: roundStock(product?.sold || 0),
-      recipe: Array.isArray(product?.recipe)
-        ? product.recipe
-            .filter((item) => item && item.materialId && Number(item.amount) > 0)
-            .map((item) => ({
-              materialId: item.materialId,
-              amount: Number(item.amount) || 0,
-              unit: String(item.unit || "gram").toLowerCase() === "kilogram" || String(item.unit || "").toLowerCase() === "kg" ? "kilogram" : "gram"
-            }))
-        : []
+      stockTrackingType,
+      variableWeightEnabled: product?.variableWeightEnabled === true || product?.variable_weight_enabled === true,
+      recipe
     };
   }
 
@@ -1581,7 +1830,11 @@
       products: Array.isArray(data.products) ? data.products.map(normalizeProduct) : [],
       sales: Array.isArray(data.sales) ? data.sales : [],
       stockMovements: Array.isArray(data.stockMovements) ? data.stockMovements : [],
-      expenses: Array.isArray(data.expenses) ? data.expenses : []
+      expenses: Array.isArray(data.expenses) ? data.expenses : [],
+      settings: {
+        insufficientStockPolicy: "block",
+        ...(data.settings && typeof data.settings === "object" ? data.settings : {})
+      }
     };
 
     if (normalized.setupCompleted || normalized.configured) {
@@ -1597,6 +1850,27 @@
     return roundStock(normalizedUnit === "kilogram" || normalizedUnit === "kg" ? value : value / 1000);
   }
 
+  function recipeAmountToIngredientStock(amount, recipeUnit, ingredientUnit) {
+    const value = Number(amount) || 0;
+    const normalizedRecipeUnit = normalizeRecipeUnit(recipeUnit);
+    const normalizedIngredientUnit = normalizeIngredientUnit(ingredientUnit);
+    if (normalizedRecipeUnit === "adet") return roundStock(value);
+    const grams = normalizedRecipeUnit === "kilogram" ? value * 1000 : value;
+    if (normalizedIngredientUnit === "Gram") return roundStock(grams);
+    return roundStock(grams / 1000);
+  }
+
+  function formatIngredientAmount(value, ingredientUnit) {
+    const unit = normalizeIngredientUnit(ingredientUnit);
+    if (unit === "Kg") {
+      const kg = roundStock(value);
+      if (kg > 0 && kg < 1) return `${Math.round(kg * 1000)} gr`;
+      return formatStock(kg, "Kg");
+    }
+    if (unit === "Gram") return `${roundStock(value).toLocaleString("tr-TR", { maximumFractionDigits: 3 })} gr`;
+    return formatStock(value, "Adet");
+  }
+
   function findProductById(productId) {
     return state.data.products.find((product) => product.id === productId);
   }
@@ -1607,7 +1881,7 @@
       .map((line) => line.trim())
       .filter(Boolean)
       .map((line) => {
-        const match = line.match(/^(.+?)\s*[:,-]\s*([\d.,]+)\s*(gram|gr|g|kilogram|kg)?$/i);
+        const match = line.match(/^(.+?)\s*[:,-]\s*([\d.,]+)\s*(gram|gr|g|kilogram|kg|adet)?$/i);
         if (!match) return null;
 
         const materialName = match[1].trim().toLocaleLowerCase("tr-TR");
@@ -1617,7 +1891,7 @@
         return {
           materialId: material.id,
           amount: parseMoneyValue(match[2]),
-          unit: /kg|kilogram/i.test(match[3] || "") ? "kilogram" : "gram"
+          unit: normalizeRecipeUnit(match[3] || (normalizeIngredientUnit(material.unit) === "Adet" ? "adet" : "gram"))
         };
       })
       .filter((item) => item && item.amount > 0);
@@ -1627,8 +1901,9 @@
     const recipe = Array.isArray(product?.recipe) ? product.recipe : [];
     return recipe.reduce((total, item) => {
       const material = findProductById(item.materialId);
-      const amountKg = recipeAmountToKg(item.amount, item.unit) * Number(quantity || 1);
-      return total + amountKg * (Number(material?.purchasePrice) || 0);
+      if (!material) return total;
+      const materialAmount = recipeAmountToIngredientStock(item.amount, item.unit, material.unit) * Number(quantity || 1);
+      return total + materialAmount * (Number(material?.purchasePrice) || 0);
     }, 0);
   }
 
@@ -1654,7 +1929,7 @@
     usageMap.forEach((amountKg, materialId) => {
       const material = findProductById(materialId);
       if (!material || roundStock(material.stock) < amountKg) {
-        missing.push(`${material ? material.name : "Hammadde"} eksik: gerekli ${formatStock(amountKg, "Kg")}, mevcut ${formatStock(material?.stock || 0, "Kg")}`);
+        missing.push(`Yetersiz ${material ? material.name : "hammadde"} stoğu. Gerekli: ${formatIngredientAmount(amountKg, material?.unit || "Kg")} Mevcut: ${formatIngredientAmount(material?.stock || 0, material?.unit || "Kg")}`);
       }
     });
 
@@ -1681,6 +1956,12 @@
 
   function getProductTypeLabel(product) {
     return isRawMaterial(product) ? "Hammadde" : "Satış ürünü";
+  }
+
+  function getStockTrackingLabel(product) {
+    if (isRawMaterial(product)) return "Hammadde";
+    const found = stockTrackingTypes.find((type) => type.id === product?.stockTrackingType);
+    return found ? found.label : "Stok Takibi Yok";
   }
 
   function generateVeresiyeId(prefix = "id") {
@@ -2477,6 +2758,9 @@
     });
     bindClick("saveSale", recordSale);
     bindClick("saveStockEntry", recordStockEntry);
+    bindClick("saveIngredient", recordIngredient);
+    bindClick("saveIngredientMovement", recordIngredientMovement);
+    bindClick("applyRecipeWizard", applyRecipeWizard);
     bindClick("saveExpense", recordExpense);
     bindClick("saveSettings", saveSettings);
     bindClick("logoutSupabase", handleSupabaseLogout);
@@ -2536,6 +2820,10 @@
         saveData();
         render();
       });
+    });
+
+    document.querySelectorAll("[data-cancel-sale]").forEach((button) => {
+      button.addEventListener("click", () => cancelSale(button.dataset.cancelSale));
     });
 
     const select = document.getElementById("productSelect");
@@ -2892,13 +3180,15 @@
     }
 
     const productType = valueOf(`${prefix}ProductType`) || "sale";
+    const trackingType = productType === "raw" ? "ingredient" : (valueOf(`${prefix}StockTrackingType`) || "none");
     const product = normalizeProduct({
       id: createId(),
       name: valueOf(`${prefix}ProductName`),
       category: valueOf(`${prefix}Category`) || "Genel",
       type: productType,
+      stockTrackingType: trackingType,
       price: Number(valueOf(`${prefix}Price`) || 0),
-      unit: productType === "raw" ? "Kg" : valueOf(`${prefix}Unit`) || "Adet",
+      unit: productType === "raw" ? normalizeIngredientUnit(valueOf(`${prefix}Unit`) || "Kg") : valueOf(`${prefix}Unit`) || "Adet",
       stock: parseMoneyValue(valueOf(`${prefix}Stock`) || 0),
       initialStock: parseMoneyValue(valueOf(`${prefix}Stock`) || 0),
       criticalLevel: parseMoneyValue(valueOf(`${prefix}Critical`) || 0),
@@ -2907,11 +3197,11 @@
       supplier: valueOf(`${prefix}Supplier`),
       note: valueOf(`${prefix}Note`),
       sold: 0,
-      recipe: productType === "sale" ? parseRecipeInput(valueOf(`${prefix}Recipe`)) : []
+      recipe: productType === "sale" && trackingType === "recipe" ? parseRecipeInput(valueOf(`${prefix}Recipe`)) : []
     });
 
-    if (!product.name || (product.type === "sale" && !product.price) || product.stock <= 0) {
-      showToast(product.type === "raw" ? "Hammadde adi ve baslangic kg stogu zorunlu." : "Urun adi, satis fiyati ve baslangic stogu zorunlu.");
+    if (!product.name || (product.type === "sale" && !product.price) || (product.type === "raw" && product.stock <= 0) || (isReadyProduct(product) && product.stock <= 0)) {
+      showToast(product.type === "raw" ? "Hammadde adı ve başlangıç stoku zorunlu." : "Ürün adı, satış fiyatı ve takipli hazır üründe başlangıç stoku zorunlu.");
       return;
     }
 
@@ -2921,6 +3211,196 @@
 
     target.push(product);
     showToast(`${product.name} eklendi.`);
+    render();
+  }
+
+  function pushStockMovement({ product, movementType, quantity, previousStock, newStock, saleId = "", description = "", unitPrice = 0, cost = 0 }) {
+    state.data.stockMovements.push({
+      id: createId(),
+      date: new Date().toISOString().slice(0, 10),
+      dateTime: new Date().toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }),
+      productId: isRawMaterial(product) ? null : product.id,
+      ingredientId: isRawMaterial(product) ? product.id : null,
+      productName: product.name,
+      movementType,
+      entryType: movementType,
+      amount: roundStock(quantity),
+      quantity: roundStock(quantity),
+      addedQuantity: roundStock(quantity),
+      addedUnit: product.unit,
+      previousStock: roundStock(previousStock),
+      oldStock: roundStock(previousStock),
+      newStock: roundStock(newStock),
+      saleId,
+      description,
+      note: description,
+      unitPrice,
+      cost
+    });
+  }
+
+  function recordIngredient() {
+    const ingredient = normalizeProduct({
+      id: createId(),
+      name: valueOf("ingredientName"),
+      category: "Hammadde",
+      type: "raw",
+      stockTrackingType: "ingredient",
+      unit: normalizeIngredientUnit(valueOf("ingredientUnit")),
+      stock: parseMoneyValue(valueOf("ingredientStock")),
+      initialStock: parseMoneyValue(valueOf("ingredientStock")),
+      criticalLevel: parseMoneyValue(valueOf("ingredientCritical")),
+      purchasePrice: parseMoneyValue(valueOf("ingredientUnitCost")),
+      active: valueOf("ingredientActive") !== "false",
+      price: 0,
+      sold: 0,
+      recipe: []
+    });
+    if (!ingredient.name || ingredient.stock < 0) {
+      showToast("Hammadde adı ve geçerli stok miktarı girin.");
+      return;
+    }
+    state.data.products.push(ingredient);
+    pushStockMovement({
+      product: ingredient,
+      movementType: "stok_girisi",
+      quantity: ingredient.stock,
+      previousStock: 0,
+      newStock: ingredient.stock,
+      description: "İlk hammadde stoku",
+      unitPrice: ingredient.purchasePrice,
+      cost: ingredient.stock * ingredient.purchasePrice
+    });
+    saveData();
+    showToast(`${ingredient.name} hammaddesi eklendi.`);
+    render();
+  }
+
+  function recordIngredientMovement() {
+    const ingredient = findProductById(valueOf("ingredientMovementId"));
+    const movementType = valueOf("ingredientMovementType") || "stok_girisi";
+    const amount = parseMoneyValue(valueOf("ingredientMovementAmount"));
+    const unitCost = parseMoneyValue(valueOf("ingredientMovementCost"));
+    if (!ingredient || !isRawMaterial(ingredient)) {
+      showToast("Hammadde seçin.");
+      return;
+    }
+    if (amount <= 0) {
+      showToast("Hareket için geçerli miktar girin.");
+      return;
+    }
+    const previousStock = roundStock(ingredient.stock || 0);
+    const delta = movementType === "fire" ? -amount : amount;
+    if (previousStock + delta < 0) {
+      showToast("Fire/düzeltme miktarı mevcut stoktan büyük olamaz.");
+      return;
+    }
+    if (unitCost > 0) ingredient.purchasePrice = unitCost;
+    ingredient.stock = roundStock(previousStock + delta);
+    pushStockMovement({
+      product: ingredient,
+      movementType,
+      quantity: delta,
+      previousStock,
+      newStock: ingredient.stock,
+      description: valueOf("ingredientMovementNote") || (movementType === "fire" ? "Fire kaydı" : "Hammadde stok hareketi"),
+      unitPrice: unitCost,
+      cost: Math.abs(delta) * unitCost
+    });
+    saveData();
+    showToast("Hammadde hareketi kaydedildi.");
+    render();
+  }
+
+  function cancelSale(saleId) {
+    const sale = state.data.sales.find((item) => item.id === saleId);
+    if (!sale) {
+      showToast("Satış bulunamadı.");
+      return;
+    }
+    if (isCanceledSale(sale) || sale.stockMovementsReversed) {
+      showToast("Bu satış zaten geri alınmış.");
+      return;
+    }
+    if (!window.confirm("Satış iptal edilip düşen stoklar geri eklensin mi?")) return;
+
+    const relatedMovements = state.data.stockMovements.filter((movement) => movement.saleId === sale.id && movement.movementType === "satis");
+    relatedMovements.forEach((movement) => {
+      const product = findProductById(movement.ingredientId || movement.productId);
+      if (!product) return;
+      const previousStock = roundStock(product.stock || 0);
+      const reverseQuantity = roundStock(-Number(movement.quantity || movement.amount || 0));
+      product.stock = roundStock(previousStock + reverseQuantity);
+      pushStockMovement({
+        product,
+        movementType: "satis_iptali",
+        quantity: reverseQuantity,
+        previousStock,
+        newStock: product.stock,
+        saleId: sale.id,
+        description: `Satış iptali: ${sale.productName}`
+      });
+    });
+
+    if (!relatedMovements.length && Array.isArray(sale.items)) {
+      const items = sale.items.map((item) => ({ cartItem: item, product: findProductById(item.productId) }));
+      const recipeUsage = calculateRecipeUsage(items);
+      items.forEach(({ cartItem, product }) => {
+        if (!product || !isReadyProduct(product)) return;
+        const previousStock = roundStock(product.stock || 0);
+        product.stock = roundStock(previousStock + Number(cartItem.quantity || 0));
+        pushStockMovement({ product, movementType: "satis_iptali", quantity: Number(cartItem.quantity || 0), previousStock, newStock: product.stock, saleId: sale.id, description: `Satış iptali: ${sale.productName}` });
+      });
+      recipeUsage.forEach((quantity, materialId) => {
+        const material = findProductById(materialId);
+        if (!material) return;
+        const previousStock = roundStock(material.stock || 0);
+        material.stock = roundStock(previousStock + quantity);
+        pushStockMovement({ product: material, movementType: "satis_iptali", quantity, previousStock, newStock: material.stock, saleId: sale.id, description: `Satış iptali: ${sale.productName}` });
+      });
+    }
+
+    sale.cancelled = true;
+    sale.status = "iptal";
+    sale.cancelledAt = new Date().toISOString();
+    sale.stockMovementsReversed = true;
+    saveData();
+    showToast("Satış iptal edildi ve stoklar geri eklendi.");
+    render();
+  }
+
+  function applyRecipeWizard() {
+    const cigkofte = findRawMaterialByName("Çiğköfte");
+    let lavas = findRawMaterialByName("Lavaş");
+    if (!cigkofte) {
+      showToast("Hazır reçete için önce Çiğköfte hammaddesini ekleyin.");
+      return;
+    }
+    if (!lavas) {
+      lavas = normalizeProduct({ id: createId(), name: "Lavaş", category: "Hammadde", type: "raw", unit: "Adet", stock: 0, criticalLevel: 20, purchasePrice: 0 });
+      state.data.products.push(lavas);
+    }
+    [
+      ["Normal Dürüm", 100],
+      ["Mega Dürüm", 125],
+      ["Ultra Dürüm", 150],
+      ["Double Dürüm", 175]
+    ].forEach(([name, gram]) => {
+      let product = findSaleProductByName(name);
+      if (!product) {
+        product = normalizeProduct({ id: createId(), name, category: "Dürüm", type: "sale", unit: "Adet", price: 0, stockTrackingType: "recipe", stock: 0 });
+        state.data.products.push(product);
+      }
+      product.stockTrackingType = "recipe";
+      product.recipe = [
+        { materialId: cigkofte.id, amount: gram, unit: "gram" },
+        { materialId: lavas.id, amount: 1, unit: "adet" }
+      ];
+      product.supportsDoritos = true;
+    });
+    state.data.settings = { ...(state.data.settings || {}), recipeWizardApplied: true };
+    saveData();
+    showToast("Normal, Mega, Ultra ve Double dürüm reçeteleri uygulandı.");
     render();
   }
 
@@ -2940,7 +3420,14 @@
 
   function saveSettings() {
     const fields = collectSetupFields();
-    state.data = { ...state.data, ...fields };
+    state.data = {
+      ...state.data,
+      ...fields,
+      settings: {
+        ...(state.data.settings || {}),
+        insufficientStockPolicy: valueOf("insufficientStockPolicy") === "warn" ? "warn" : "block"
+      }
+    };
     if (!state.data.paymentMethods.includes(state.paymentMethod)) {
       state.paymentMethod = state.data.paymentMethods[0] || "";
     }
@@ -3698,9 +4185,11 @@ ${recentSales}`;
       id: createId(),
       date,
       dateTime: new Date().toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }),
-      productId: product.id,
+      productId: isRaw ? null : product.id,
+      ingredientId: isRaw ? product.id : null,
       productName: product.name,
       productType: product.type,
+      movementType: "stok_girisi",
       entryType,
       amount,
       addedQuantity: roundStock(addedQuantity),
@@ -3715,6 +4204,8 @@ ${recentSales}`;
       deliveryDate: date,
       expiryDate,
       note,
+      description: note || "Stok girişi",
+      previousStock: oldStock,
       oldStock,
       newStock: product.stock,
       weightedAverageCost: product.purchasePrice || 0
@@ -5427,9 +5918,9 @@ ${recentSales}`;
       if (!item.product) return true;
       if (item.cartItem.customAmountSale || item.cartItem.saleType === "custom-amount") {
         if (item.cartItem.rawMaterialId || (Array.isArray(item.product.recipe) && item.product.recipe.length)) return false;
-        return Number(item.product.stock || 0) < Number(item.cartItem.stockDeductQuantity || 0);
+        return isReadyProduct(item.product) && Number(item.product.stock || 0) < Number(item.cartItem.stockDeductQuantity || 0);
       }
-      return item.cartItem.saleType !== "weighted" && (!Array.isArray(item.product.recipe) || !item.product.recipe.length) && item.product.stock < item.cartItem.quantity;
+      return item.cartItem.saleType !== "weighted" && isReadyProduct(item.product) && item.product.stock < item.cartItem.quantity;
     });
     if (invalidItem) {
       showToast("Bu ürün için yeterli stok yok.");
@@ -5439,8 +5930,13 @@ ${recentSales}`;
     const missingMaterials = validateRecipeStock(recipeUsage);
     const doritosMissing = validateDoritosStock(items);
     if (missingMaterials.length || doritosMissing.length) {
-      showToast([...missingMaterials, ...doritosMissing].join(" | "));
-      return;
+      const message = [...missingMaterials, ...doritosMissing].join(" | ");
+      if (state.data.settings?.insufficientStockPolicy === "warn") {
+        showToast(`Stok uyarısı: ${message}`);
+      } else {
+        showToast(message);
+        return;
+      }
     }
 
     let creditCustomer = null;
@@ -5463,19 +5959,28 @@ ${recentSales}`;
       }
     }
 
+    const stockChanges = [];
     items.forEach(({ cartItem, product }) => {
+      const previousStock = roundStock(product.stock || 0);
       if (cartItem.customAmountSale || cartItem.saleType === "custom-amount") {
-        if (!cartItem.rawMaterialId && (!Array.isArray(product.recipe) || !product.recipe.length)) {
+        if (!cartItem.rawMaterialId && isReadyProduct(product)) {
           product.stock = roundStock(product.stock - Number(cartItem.stockDeductQuantity || 0));
         }
-      } else if (cartItem.saleType !== "weighted" && (!Array.isArray(product.recipe) || !product.recipe.length)) {
+      } else if (cartItem.saleType !== "weighted" && isReadyProduct(product)) {
         product.stock = roundStock(product.stock - cartItem.quantity);
+      }
+      if (previousStock !== roundStock(product.stock || 0)) {
+        stockChanges.push({ product, quantity: roundStock(product.stock - previousStock), previousStock, newStock: product.stock, movementType: "satis" });
       }
       product.sold = roundStock(product.sold + Number(cartItem.stockDeductQuantity || cartItem.quantity || cartItem.quantityKg || 0));
     });
     recipeUsage.forEach((amountKg, materialId) => {
       const material = findProductById(materialId);
-      if (material) material.stock = roundStock(material.stock - amountKg);
+      if (material) {
+        const previousStock = roundStock(material.stock || 0);
+        material.stock = roundStock(material.stock - amountKg);
+        stockChanges.push({ product: material, quantity: -amountKg, previousStock, newStock: material.stock, movementType: "satis" });
+      }
     });
     const doritos = findDoritosStockProduct();
     if (doritos) {
@@ -5547,9 +6052,16 @@ ${recentSales}`;
       source: "quick-pos",
       date: now.toISOString().slice(0, 10),
       time: now.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }),
-      items: saleItems
+      items: saleItems,
+      stockApplied: true,
+      stockMovementsReversed: false
     };
     state.data.sales.push(sale);
+    stockChanges.forEach((change) => pushStockMovement({
+      ...change,
+      saleId: sale.id,
+      description: `POS satışı: ${sale.productName}`
+    }));
 
     if (method === "Veresiye") {
       const description = `POS satışı: ${sale.productName}`;
@@ -5664,33 +6176,18 @@ ${recentSales}`;
     cigkofteRaw.type = "raw";
     cigkofteRaw.unit = "Kg";
 
-    businessDurumDefinitions().forEach((definition) => {
-      let product = findSaleProductByName(definition.name);
-      if (!product) {
-        product = normalizeProduct({
-          id: createId(),
-          name: definition.name,
-          category: "Dürüm",
-          type: "sale",
-          unit: "Adet",
-          stock: 999,
-          criticalLevel: 0,
-          price: definition.price,
-          sold: 0,
-          recipe: definition.recipe
-        });
-        state.data.products.push(product);
-      }
-
-      product.name = definition.name;
-      product.category = "Dürüm";
-      product.type = "sale";
-      product.unit = "Adet";
-      product.price = definition.price;
-      product.recipe = definition.recipe;
-      product.supportsDoritos = true;
-      product.stock = Number(product.stock || 999);
-    });
+    if (state.data.settings?.recipeWizardApplied) {
+      businessDurumDefinitions().forEach((definition) => {
+        const product = findSaleProductByName(definition.name);
+        if (!product) return;
+        product.category = product.category || "Dürüm";
+        product.type = "sale";
+        product.unit = "Adet";
+        product.stockTrackingType = "recipe";
+        product.recipe = definition.recipe;
+        product.supportsDoritos = true;
+      });
+    }
 
     let firikSale = findSaleProductByName("Firik");
     if (!firikSale) {
@@ -5789,14 +6286,17 @@ ${recentSales}`;
       return roundStock(raw?.stock || 0);
     }
 
+    if (isReadyProduct(product)) return Number(product?.stock || 0);
+    if (!isRecipeProduct(product)) return Number.POSITIVE_INFINITY;
+
     const recipe = Array.isArray(product?.recipe) ? product.recipe : [];
     if (!recipe.length) return Number(product?.stock || 0);
 
     const limits = recipe.map((item) => {
       const material = findProductById(item.materialId);
-      const perUnitKg = recipeAmountToKg(item.amount, item.unit);
-      if (!material || perUnitKg <= 0) return 0;
-      return Math.floor((roundStock(material.stock) / perUnitKg) * 1000) / 1000;
+      const perUnit = recipeAmountToIngredientStock(item.amount, item.unit, material?.unit || "Kg");
+      if (!material || perUnit <= 0) return 0;
+      return Math.floor((roundStock(material.stock) / perUnit) * 1000) / 1000;
     });
 
     return limits.length ? Math.max(0, Math.min(...limits)) : 0;
@@ -5806,6 +6306,13 @@ ${recentSales}`;
     const available = calculateAvailableRecipeQuantity(product);
     const recipeCost = calculateRecipeCost(product);
     const grossProfit = Number(product.price || 0) - recipeCost;
+    const hasLimitedStock = Number.isFinite(available);
+    const stockText = isRecipeProduct(product)
+      ? `Yaklaşık ${Math.floor(available)} adet yapılabilir`
+      : isReadyProduct(product)
+        ? `Kalan: ${formatStock(available, product.unit)}`
+        : "Stok takibi yok";
+    const stockClass = hasLimitedStock && available <= 0 ? "danger" : hasLimitedStock && available <= Number(product.criticalLevel || 0) ? "warning-text" : "success-text";
 
     if (product.saleType === "weighted") {
       return `
@@ -5830,13 +6337,13 @@ ${recentSales}`;
     return `
       <article class="product-card sale-product-card">
         <h4>${escapeHtml(product.name)}</h4>
-        <p>${escapeHtml(product.category)} - ${escapeHtml(product.unit)}</p>
+        <p>${escapeHtml(product.category)} - ${escapeHtml(getStockTrackingLabel(product))}</p>
         <div class="product-card-meta">
           <span class="price">${money.format(product.price)}</span>
-          <span class="${available <= product.criticalLevel ? "danger" : "muted"}">Stok: ${formatStock(available, product.unit)}</span>
+          <span class="${stockClass}">${escapeHtml(stockText)}</span>
         </div>
         ${Array.isArray(product.recipe) && product.recipe.length ? `<p class="muted">Maliyet: ${formatTRY(recipeCost)} | Brüt kâr: ${formatTRY(grossProfit)}</p>` : ""}
-        ${doritosButtons || `<button class="button compact" type="button" data-cart-add="${product.id}" ${available <= 0 ? "disabled" : ""}>Sepete Ekle</button>`}
+        ${doritosButtons || `<button class="button compact" type="button" data-cart-add="${product.id}" ${hasLimitedStock && available <= 0 ? "disabled" : ""}>Sepete Ekle</button>`}
       </article>
     `;
   }
@@ -6085,7 +6592,8 @@ ${recentSales}`;
         }
         if (!product || !Array.isArray(product.recipe) || !product.recipe.length) return;
         product.recipe.forEach((recipeItem) => {
-          const amountKg = roundStock(recipeAmountToKg(recipeItem.amount, recipeItem.unit) * Number(cartItem.stockDeductQuantity || cartItem.quantity || 0));
+          const material = findProductById(recipeItem.materialId);
+          const amountKg = roundStock(recipeAmountToIngredientStock(recipeItem.amount, recipeItem.unit, material?.unit || "Kg") * Number(cartItem.stockDeductQuantity || cartItem.quantity || 0));
           const current = usageMap.get(recipeItem.materialId) || 0;
           usageMap.set(recipeItem.materialId, roundStock(current + amountKg));
         });
@@ -6101,7 +6609,8 @@ ${recentSales}`;
       if (!product || !Array.isArray(product.recipe) || !product.recipe.length) return;
 
       product.recipe.forEach((recipeItem) => {
-        const amountKg = roundStock(recipeAmountToKg(recipeItem.amount, recipeItem.unit) * Number(cartItem.quantity || 0));
+        const material = findProductById(recipeItem.materialId);
+        const amountKg = roundStock(recipeAmountToIngredientStock(recipeItem.amount, recipeItem.unit, material?.unit || "Kg") * Number(cartItem.quantity || 0));
         const current = usageMap.get(recipeItem.materialId) || 0;
         usageMap.set(recipeItem.materialId, roundStock(current + amountKg));
       });
@@ -6134,7 +6643,7 @@ ${recentSales}`;
       return { cartItem, product };
     });
 
-    const invalidItem = items.find((item) => !item.product || (item.cartItem.saleType !== "weighted" && (!Array.isArray(item.product.recipe) || !item.product.recipe.length) && item.product.stock < item.cartItem.quantity));
+    const invalidItem = items.find((item) => !item.product || (item.cartItem.saleType !== "weighted" && isReadyProduct(item.product) && item.product.stock < item.cartItem.quantity));
     if (invalidItem) {
       showToast("Bu ürün için yeterli stok yok.");
       return;
@@ -6144,20 +6653,34 @@ ${recentSales}`;
     const missingMaterials = validateRecipeStock(recipeUsage);
     const doritosMissing = validateDoritosStock(items);
     if (missingMaterials.length || doritosMissing.length) {
-      showToast([...missingMaterials, ...doritosMissing].join(" | "));
-      return;
+      const message = [...missingMaterials, ...doritosMissing].join(" | ");
+      if (state.data.settings?.insufficientStockPolicy === "warn") {
+        showToast(`Stok uyarısı: ${message}`);
+      } else {
+        showToast(message);
+        return;
+      }
     }
 
+    const stockChanges = [];
     items.forEach(({ cartItem, product }) => {
-      if (cartItem.saleType !== "weighted" && (!Array.isArray(product.recipe) || !product.recipe.length)) {
+      const previousStock = roundStock(product.stock || 0);
+      if (cartItem.saleType !== "weighted" && isReadyProduct(product)) {
         product.stock = roundStock(product.stock - cartItem.quantity);
+      }
+      if (previousStock !== roundStock(product.stock || 0)) {
+        stockChanges.push({ product, quantity: roundStock(product.stock - previousStock), previousStock, newStock: product.stock, movementType: "satis" });
       }
       product.sold = roundStock(product.sold + Number(cartItem.quantity || cartItem.quantityKg || 0));
     });
 
     recipeUsage.forEach((amountKg, materialId) => {
       const material = findProductById(materialId);
-      if (material) material.stock = roundStock(material.stock - amountKg);
+      if (material) {
+        const previousStock = roundStock(material.stock || 0);
+        material.stock = roundStock(material.stock - amountKg);
+        stockChanges.push({ product: material, quantity: -amountKg, previousStock, newStock: material.stock, movementType: "satis" });
+      }
     });
 
     const doritos = findDoritosStockProduct();
@@ -6194,7 +6717,7 @@ ${recentSales}`;
     const recipeCost = saleItems.reduce((sum, item) => sum + item.recipeCost, 0);
     const quantity = saleItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
 
-    state.data.sales.push({
+    const sale = {
       id: createId(),
       productId: saleItems[0].productId,
       productName: saleItems.length === 1 ? saleItems[0].productName : `${saleItems.length} urun`,
@@ -6207,8 +6730,16 @@ ${recentSales}`;
       paymentMethod: method,
       date: now.toISOString().slice(0, 10),
       time: now.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }),
-      items: saleItems
-    });
+      items: saleItems,
+      stockApplied: true,
+      stockMovementsReversed: false
+    };
+    state.data.sales.push(sale);
+    stockChanges.forEach((change) => pushStockMovement({
+      ...change,
+      saleId: sale.id,
+      description: `Satış: ${sale.productName}`
+    }));
 
     state.quantity = 1;
     state.cart = [];

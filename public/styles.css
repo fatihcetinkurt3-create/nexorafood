@@ -710,6 +710,16 @@ textarea {
   color: var(--danger);
 }
 
+.success-text {
+  color: #22c55e;
+  font-weight: 700;
+}
+
+.warning-text {
+  color: #f59e0b;
+  font-weight: 700;
+}
+
 .amber {
   color: var(--amber);
 }

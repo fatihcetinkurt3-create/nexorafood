@@ -216,6 +216,8 @@
       stock_quantity: Number(product.stock || product.stock_quantity || 0),
       stock_unit: product.unit || product.stock_unit || "Adet",
       critical_stock: Number(product.criticalLevel || product.critical_stock || 0),
+      stock_tracking_type: product.stockTrackingType || product.stock_tracking_type || (product.type === "raw" ? "ingredient" : "none"),
+      variable_weight_enabled: product.variableWeightEnabled === true || product.variable_weight_enabled === true,
       active: product.active !== false,
       metadata: {
         legacyId: product.id,
@@ -225,6 +227,8 @@
         note: product.note,
         sold: product.sold,
         recipe: product.recipe,
+        stockTrackingType: product.stockTrackingType,
+        variableWeightEnabled: product.variableWeightEnabled,
         saleType: product.saleType,
         rawMaterialId: product.rawMaterialId,
         supportsDoritos: product.supportsDoritos
@@ -250,6 +254,8 @@
       stock: Number(row.stock_quantity || 0),
       unit: row.stock_unit || "Adet",
       criticalLevel: Number(row.critical_stock || 0),
+      stockTrackingType: row.stock_tracking_type || meta.stockTrackingType || (row.product_type === "raw" ? "ingredient" : "none"),
+      variableWeightEnabled: row.variable_weight_enabled === true || meta.variableWeightEnabled === true,
       active: row.active !== false,
       initialStock: Number(meta.initialStock ?? row.stock_quantity ?? 0),
       packageSize: Number(meta.packageSize || 0),
@@ -278,6 +284,10 @@
       tip_amount: Number(sale.tipAmount || 0),
       custom_amount_sale: sale.customAmountSale === true,
       note: sale.note || "",
+      status: sale.status || (sale.cancelled ? "iptal" : "active"),
+      stock_applied: sale.stockApplied === true,
+      stock_movements_reversed: sale.stockMovementsReversed === true,
+      cancelled_at: sale.cancelledAt || null,
       client_generated_id: sale.client_generated_id || sale.id || null,
       created_at: sale.createdAt || sale.dateTime || `${sale.date || new Date().toISOString().slice(0, 10)}T${sale.time || "12:00"}:00`
     };
@@ -296,6 +306,11 @@
       tipAmount: Number(row.tip_amount || 0),
       customAmountSale: row.custom_amount_sale === true,
       note: row.note || "",
+      status: row.status || "active",
+      cancelled: row.status === "iptal" || Boolean(row.cancelled_at),
+      stockApplied: row.stock_applied === true,
+      stockMovementsReversed: row.stock_movements_reversed === true,
+      cancelledAt: row.cancelled_at || null,
       date: String(row.created_at || "").slice(0, 10),
       time: new Date(row.created_at).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }),
       productId: items[0]?.productId || null,
@@ -359,6 +374,8 @@
         categories: Array.isArray(data.categories) ? data.categories : [],
         businessName: data.businessName || "",
         ownerName: data.ownerName || "",
+        insufficientStockPolicy: data.settings?.insufficientStockPolicy || "block",
+        recipeWizardApplied: data.settings?.recipeWizardApplied === true,
         backupMeta
       },
       updated_at: new Date().toISOString()
@@ -462,12 +479,18 @@
       whatsappNumber: settings.whatsapp_number || business.phone || "",
       categories,
       paymentMethods,
+      settings: {
+        insufficientStockPolicy: settingsJson.insufficientStockPolicy || "block",
+        recipeWizardApplied: settingsJson.recipeWizardApplied === true
+      },
       backupMeta: settingsJson.backupMeta || {},
       products,
       sales: (salesRes.data || []).map((sale) => saleFromDb(sale, itemsBySale[sale.id] || [])),
       stockMovements: (stockRes.data || []).map((row) => ({
         id: row.id,
         productId: row.product_id,
+        ingredientId: row.metadata?.ingredientId || null,
+        saleId: row.sale_id || row.metadata?.saleId || null,
         productName: row.metadata?.productName || "",
         movementType: row.movement_type,
         entryType: row.movement_type,
@@ -529,6 +552,8 @@
       stableNumber(existing.stock_quantity) !== stableNumber(payload.stock_quantity) ||
       String(existing.stock_unit || "") !== String(payload.stock_unit || "") ||
       stableNumber(existing.critical_stock) !== stableNumber(payload.critical_stock) ||
+      String(existing.stock_tracking_type || "") !== String(payload.stock_tracking_type || "") ||
+      Boolean(existing.variable_weight_enabled) !== Boolean(payload.variable_weight_enabled) ||
       existing.active !== payload.active ||
       existing.metadata?.legacyId !== payload.metadata?.legacyId
     );
@@ -660,6 +685,7 @@
         invoice_number: movement.invoiceNumber || movement.invoice || "",
         note: movement.note || "",
         metadata: movement,
+        sale_id: movement.saleId && /^[0-9a-f-]{36}$/i.test(movement.saleId) ? movement.saleId : null,
         client_generated_id: movement.client_generated_id || movement.id || null
       };
       const query = payload.client_generated_id
