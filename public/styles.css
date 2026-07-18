@@ -1224,6 +1224,199 @@ textarea {
   color: var(--muted);
 }
 
+.quick-pos-loyalty {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(68, 214, 158, 0.08);
+}
+
+.quick-pos-loyalty-head,
+.quick-pos-phone-search {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.quick-pos-loyalty-head div {
+  display: grid;
+  gap: 2px;
+}
+
+.quick-pos-loyalty-head span,
+.loyalty-mini-score span {
+  color: var(--amber);
+  font-size: 0.82rem;
+}
+
+.quick-pos-phone-search input {
+  min-width: 0;
+}
+
+.loyalty-mini-score {
+  display: grid;
+  gap: 4px;
+}
+
+.qr-scanner {
+  display: grid;
+  gap: 10px;
+}
+
+.qr-scanner video {
+  width: 100%;
+  min-height: 240px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #020617;
+  object-fit: cover;
+}
+
+.customer-page {
+  min-height: 100vh;
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  padding: 24px clamp(16px, 5vw, 34px) 40px;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(68, 214, 158, 0.18), transparent 18rem),
+    linear-gradient(145deg, #050718 0%, #08132e 54%, #110d2e 100%);
+}
+
+.customer-logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.customer-logo > div:last-child {
+  display: grid;
+  gap: 2px;
+}
+
+.customer-logo span {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.customer-hero,
+.customer-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(14, 22, 49, 0.78);
+  box-shadow: var(--shadow);
+  padding: 22px;
+}
+
+.customer-hero h1,
+.customer-card h1 {
+  margin: 0 0 12px;
+  font-size: clamp(1.7rem, 8vw, 2.7rem);
+  line-height: 1.05;
+  letter-spacing: 0;
+}
+
+.customer-hero p {
+  margin: 10px 0;
+  color: var(--muted);
+  font-size: 1.02rem;
+}
+
+.customer-hero strong {
+  color: var(--text);
+}
+
+.customer-benefits,
+.customer-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.customer-benefits article,
+.customer-stats div {
+  min-height: 92px;
+  display: grid;
+  gap: 8px;
+  align-content: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 14px;
+}
+
+.customer-benefits span {
+  font-size: 1.7rem;
+}
+
+.customer-primary-button {
+  min-height: 56px;
+  border: 0;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--green), var(--blue));
+  color: #04111f;
+  font-weight: 900;
+  font-size: 1rem;
+}
+
+.customer-form,
+.customer-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.customer-check {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.customer-check input {
+  width: auto;
+  min-height: auto;
+  margin-top: 3px;
+}
+
+.loyalty-stars {
+  color: var(--amber);
+  font-size: clamp(1.5rem, 8vw, 2.4rem);
+  letter-spacing: 0;
+}
+
+.loyalty-score strong,
+.reward-left strong,
+.customer-stats strong {
+  color: var(--green);
+}
+
+.customer-qr-wrap {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #07111f;
+}
+
+.customer-qr-wrap img {
+  width: min(280px, 100%);
+  aspect-ratio: 1;
+}
+
+.center-text,
+.center-card {
+  text-align: center;
+}
+
 .quick-pos-fast-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-bottom: 10px;
@@ -1559,6 +1752,23 @@ th {
 
   .quick-pos-choice-card {
     min-height: 76px;
+  }
+
+  .quick-pos-loyalty-head,
+  .quick-pos-phone-search {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .quick-pos-phone-search .button,
+  .quick-pos-loyalty .button {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .customer-benefits,
+  .customer-stats {
+    grid-template-columns: 1fr;
   }
 }
 

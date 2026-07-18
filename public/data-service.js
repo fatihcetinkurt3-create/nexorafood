@@ -288,6 +288,9 @@
       stock_applied: sale.stockApplied === true,
       stock_movements_reversed: sale.stockMovementsReversed === true,
       cancelled_at: sale.cancelledAt || null,
+      customer_code: sale.loyaltyCustomerCode || null,
+      loyalty_points_earned: Number(sale.loyaltyPointsEarned || 0),
+      loyalty_reward_redeemed: sale.loyaltyRewardRedeemed === true,
       client_generated_id: sale.client_generated_id || sale.id || null,
       created_at: sale.createdAt || sale.dateTime || `${sale.date || new Date().toISOString().slice(0, 10)}T${sale.time || "12:00"}:00`
     };
@@ -311,6 +314,9 @@
       stockApplied: row.stock_applied === true,
       stockMovementsReversed: row.stock_movements_reversed === true,
       cancelledAt: row.cancelled_at || null,
+      loyaltyCustomerCode: row.customer_code || "",
+      loyaltyPointsEarned: Number(row.loyalty_points_earned || 0),
+      loyaltyRewardRedeemed: row.loyalty_reward_redeemed === true,
       date: String(row.created_at || "").slice(0, 10),
       time: new Date(row.created_at).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }),
       productId: items[0]?.productId || null,

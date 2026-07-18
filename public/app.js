@@ -1,10 +1,12 @@
 ﻿(function () {
   const storageKey = "nexoraFoodAiOwnerSetup.v1";
   const VERESIYE_STORAGE_KEY = "nexoraVeresiyeCustomers";
+  const LOYALTY_CUSTOMERS_STORAGE_KEY = "nexoraLoyaltyCustomers.v1";
   const PRODUCTION_STORAGE_KEY = "nexoraProductionRecords";
   const WASTE_STORAGE_KEY = "nexoraWasteRecords";
   const CASH_CLOSING_STORAGE_KEY = "nexoraCashClosings";
   const DORITOS_EXTRA_PRICE = 25;
+  const LOYALTY_REWARD_POINTS = 10;
   const fallbackPaymentMethods = ["Nakit", "POS", "Online", "IBAN"];
   const stockUnits = ["Adet", "Koli", "Kg", "Gram", "Litre"];
   const productTypes = [
@@ -66,6 +68,9 @@
     posDiscount: 0,
     posPaymentMethod: "Nakit",
     posVeresiyeCustomerId: "",
+    posLoyaltyCustomerCode: "",
+    posLoyaltyPhoneSearch: "",
+    posRewardApplied: false,
     posSearch: "",
     posCategory: "Tumu",
     posCashReceived: "",
@@ -181,6 +186,12 @@
   }
 
   function render() {
+    if (window.location.pathname.startsWith("/customer")) {
+      document.getElementById("app").innerHTML = customerShell();
+      bindCustomerEvents();
+      return;
+    }
+
     const isAdmin = window.location.pathname === "/demo/food/admin";
     if (!isAdmin) {
       document.getElementById("app").innerHTML = `<div class="app-shell">${topbar(false)}${landingView()}</div>`;
@@ -235,6 +246,154 @@
         </div>
       </header>
     `;
+  }
+
+  function customerShell() {
+    const path = window.location.pathname;
+    if (path === "/customer/register") return customerRegisterPage();
+    if (path === "/customer/me") return customerMePage();
+    return customerLandingPage();
+  }
+
+  function customerLogo() {
+    return `
+      <div class="customer-logo">
+        <div class="brand-mark">N</div>
+        <div>
+          <strong>Nexora Food AI</strong>
+          <span>Çiğköfteci Ömer Usta</span>
+        </div>
+      </div>
+    `;
+  }
+
+  function customerLandingPage() {
+    return `
+      <main class="customer-page">
+        ${customerLogo()}
+        <section class="customer-hero">
+          <h1>🎉 Çiğköfteci Ömer Usta Sadakat Kulübü</h1>
+          <p>Her dürüm alışverişinizde puan kazanın.</p>
+          <p><strong>10 puana ulaştığınızda<br />1 Normal Dürüm HEDİYE!</strong></p>
+        </section>
+        <section class="customer-benefits">
+          ${customerBenefit("🎁", "Ücretsiz dürüm")}
+          ${customerBenefit("⭐", "Puan takibi")}
+          ${customerBenefit("📱", "QR ile hızlı işlem")}
+          ${customerBenefit("⏱️", "Ücretsiz kayıt")}
+        </section>
+        <button class="customer-primary-button" type="button" id="joinLoyalty">Hemen Katıl</button>
+      </main>
+    `;
+  }
+
+  function customerBenefit(icon, label) {
+    return `<article><span>${icon}</span><strong>${escapeHtml(label)}</strong></article>`;
+  }
+
+  function customerRegisterPage() {
+    return `
+      <main class="customer-page">
+        ${customerLogo()}
+        <section class="customer-card">
+          <p class="eyebrow">Ücretsiz kayıt</p>
+          <h1>Sadakat Kulübü'ne Katıl</h1>
+          <form id="customerRegisterForm" class="customer-form">
+            <div class="field">
+              <label for="customerFullName">Ad Soyad</label>
+              <input id="customerFullName" autocomplete="name" placeholder="Fatih Yılmaz" required />
+            </div>
+            <div class="field">
+              <label for="customerPhone">Telefon</label>
+              <input id="customerPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="05xx xxx xx xx" required />
+            </div>
+            <label class="customer-check">
+              <input id="customerKvkk" type="checkbox" required />
+              <span>KVKK kapsamında verilerimin sadakat programı için işlenmesini onaylıyorum.</span>
+            </label>
+            <label class="customer-check">
+              <input id="customerCampaignOptIn" type="checkbox" />
+              <span>Kampanya bildirimleri almak istiyorum.</span>
+            </label>
+            <button class="customer-primary-button" type="submit">Kaydı Tamamla</button>
+          </form>
+        </section>
+      </main>
+    `;
+  }
+
+  function customerMePage() {
+    const customer = getActiveLoyaltyCustomer();
+    if (!customer) {
+      return `
+        <main class="customer-page">
+          ${customerLogo()}
+          <section class="customer-card center-card">
+            <h1>Üyelik bulunamadı</h1>
+            <p class="muted">Sadakat kartınızı görmek için kayıt olun.</p>
+            <button class="customer-primary-button" type="button" id="joinLoyalty">Hemen Katıl</button>
+          </section>
+        </main>
+      `;
+    }
+    const points = Number(customer.points || 0);
+    const remaining = Math.max(0, LOYALTY_REWARD_POINTS - (points % LOYALTY_REWARD_POINTS || (points >= LOYALTY_REWARD_POINTS ? LOYALTY_REWARD_POINTS : points)));
+    const displayRemaining = points >= LOYALTY_REWARD_POINTS ? 0 : remaining;
+    return `
+      <main class="customer-page">
+        ${customerLogo()}
+        <section class="customer-card customer-panel">
+          <p class="eyebrow">Müşteri Paneli</p>
+          <h1>Merhaba ${escapeHtml(firstName(customer.fullName))}</h1>
+          <div class="loyalty-stars">${loyaltyStars(points)}</div>
+          <div class="loyalty-score"><strong>${points % LOYALTY_REWARD_POINTS || (points >= LOYALTY_REWARD_POINTS ? LOYALTY_REWARD_POINTS : points)} / ${LOYALTY_REWARD_POINTS}</strong> Puan</div>
+          <div class="reward-left">Ödüle kalan: <strong>${displayRemaining}</strong> dürüm</div>
+          <div class="customer-stats">
+            ${customerStat("Toplam puan", points)}
+            ${customerStat("Kazanılan ödüller", Number(customer.rewardsEarned || 0))}
+            ${customerStat("Toplam alışveriş", Number(customer.totalPurchases || 0))}
+            ${customerStat("Son alışveriş", customer.lastPurchaseAt ? formatDateTR(customer.lastPurchaseAt) : "-")}
+          </div>
+          <div class="customer-qr-wrap">
+            <img alt="Sadakat QR kodu" src="${escapeAttribute(qrImageUrl(customer.customerCode))}" />
+            <strong>${escapeHtml(customer.customerCode)}</strong>
+          </div>
+          <p class="muted center-text">Kasada bu QR kodunu okutmanız yeterlidir.</p>
+        </section>
+      </main>
+    `;
+  }
+
+  function customerStat(label, value) {
+    return `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>`;
+  }
+
+  function bindCustomerEvents() {
+    bindClick("joinLoyalty", () => {
+      history.pushState({}, "", "/customer/register");
+      render();
+    });
+    const form = document.getElementById("customerRegisterForm");
+    form?.addEventListener("submit", handleCustomerRegister);
+    window.onpopstate = () => render();
+  }
+
+  async function handleCustomerRegister(event) {
+    event.preventDefault();
+    try {
+      const customer = await registerLoyaltyCustomer({
+        fullName: valueOf("customerFullName"),
+        phone: valueOf("customerPhone"),
+        kvkkAccepted: document.getElementById("customerKvkk")?.checked === true,
+        campaignOptIn: document.getElementById("customerCampaignOptIn")?.checked === true
+      });
+      localStorage.setItem("nexoraActiveLoyaltyCode", customer.customerCode);
+      history.pushState({}, "", `/customer/me?code=${encodeURIComponent(customer.customerCode)}`);
+      render();
+    } catch (error) {
+      showToast(error.message);
+      alert(error.message);
+    }
   }
 
   function supabaseStatusBanner() {
@@ -3541,10 +3700,12 @@
       });
     }
 
+    reverseLoyaltySale(sale);
     sale.cancelled = true;
     sale.status = "iptal";
     sale.cancelledAt = new Date().toISOString();
     sale.stockMovementsReversed = true;
+    sale.loyaltyReversed = true;
     saveData();
     showToast("Satış iptal edildi ve stoklar geri eklendi.");
     render();
@@ -4133,6 +4294,202 @@ ${recentSales}`;
 
   function splitList(value) {
     return value.split(",").map((item) => item.trim()).filter(Boolean);
+  }
+
+  function getLoyaltyCustomers() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(LOYALTY_CUSTOMERS_STORAGE_KEY) || "[]");
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function saveLoyaltyCustomers(customers) {
+    localStorage.setItem(LOYALTY_CUSTOMERS_STORAGE_KEY, JSON.stringify(Array.isArray(customers) ? customers : []));
+  }
+
+  function upsertLocalLoyaltyCustomer(customer) {
+    if (!customer?.customerCode) return customer;
+    const customers = getLoyaltyCustomers();
+    const index = customers.findIndex((item) => item.customerCode === customer.customerCode || item.phone === customer.phone);
+    if (index >= 0) customers[index] = { ...customers[index], ...customer };
+    else customers.unshift(customer);
+    saveLoyaltyCustomers(customers);
+    return index >= 0 ? customers[index] : customer;
+  }
+
+  function generateCustomerCode() {
+    const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    const existing = new Set(getLoyaltyCustomers().map((customer) => customer.customerCode));
+    let code = "";
+    do {
+      code = `NXR-${Array.from({ length: 6 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("")}`;
+    } while (existing.has(code));
+    return code;
+  }
+
+  function createOrGetLoyaltyCustomer(formData) {
+    const fullName = String(formData.fullName || "").trim();
+    const phone = normalizePhone(formData.phone);
+    if (!fullName) throw new Error("Ad Soyad zorunludur.");
+    if (!phone || phone.length < 10) throw new Error("Geçerli telefon girin.");
+    if (formData.kvkkAccepted !== true) throw new Error("KVKK onayı zorunludur.");
+
+    const customers = getLoyaltyCustomers();
+    const existing = customers.find((customer) => customer.phone === phone);
+    if (existing) {
+      existing.fullName = existing.fullName || fullName;
+      existing.campaignOptIn = existing.campaignOptIn || formData.campaignOptIn === true;
+      existing.updatedAt = new Date().toISOString();
+      saveLoyaltyCustomers(customers);
+      return existing;
+    }
+
+    const now = new Date().toISOString();
+    const customer = {
+      id: createId(),
+      customerCode: generateCustomerCode(),
+      fullName,
+      phone,
+      points: 0,
+      totalPoints: 0,
+      rewardsEarned: 0,
+      rewardsRedeemed: 0,
+      totalPurchases: 0,
+      lastPurchaseAt: "",
+      campaignOptIn: formData.campaignOptIn === true,
+      kvkkAccepted: true,
+      qrCreatedAt: now,
+      createdAt: now,
+      updatedAt: now
+    };
+    customers.unshift(customer);
+    saveLoyaltyCustomers(customers);
+    return customer;
+  }
+
+  async function registerLoyaltyCustomer(formData) {
+    try {
+      const response = await fetch("/api/customer/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData)
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok || !result.customer) throw new Error(result.error || "Sunucu kaydi yapilamadi.");
+      return upsertLocalLoyaltyCustomer(result.customer);
+    } catch {
+      return createOrGetLoyaltyCustomer(formData);
+    }
+  }
+
+  async function lookupLoyaltyCustomer({ code = "", phone = "" } = {}) {
+    const local = code ? findLoyaltyCustomerByCode(code) : findLoyaltyCustomerByPhone(phone);
+    if (local) return local;
+    try {
+      const query = code ? `code=${encodeURIComponent(code)}` : `phone=${encodeURIComponent(phone)}`;
+      const response = await fetch(`/api/customer/lookup?${query}`);
+      const result = await response.json();
+      if (!response.ok || !result.ok || !result.customer) return null;
+      return upsertLocalLoyaltyCustomer(result.customer);
+    } catch {
+      return null;
+    }
+  }
+
+  function getActiveLoyaltyCustomer() {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code") || localStorage.getItem("nexoraActiveLoyaltyCode") || "";
+    return findLoyaltyCustomerByCode(code);
+  }
+
+  function findLoyaltyCustomerByCode(code) {
+    const normalized = String(code || "").trim().toLocaleUpperCase("tr-TR");
+    if (!normalized) return null;
+    return getLoyaltyCustomers().find((customer) => String(customer.customerCode || "").toLocaleUpperCase("tr-TR") === normalized) || null;
+  }
+
+  function findLoyaltyCustomerByPhone(phone) {
+    const normalizedPhone = normalizePhone(phone);
+    if (!normalizedPhone) return null;
+    return getLoyaltyCustomers().find((customer) => customer.phone === normalizedPhone) || null;
+  }
+
+  function qrImageUrl(customerCode) {
+    return `https://api.qrserver.com/v1/create-qr-code/?size=280x280&margin=10&data=${encodeURIComponent(customerCode)}`;
+  }
+
+  function firstName(value) {
+    return String(value || "").trim().split(/\s+/)[0] || "Misafir";
+  }
+
+  function loyaltyStars(points) {
+    const filled = Math.min(LOYALTY_REWARD_POINTS, Number(points || 0) % LOYALTY_REWARD_POINTS || (Number(points || 0) >= LOYALTY_REWARD_POINTS ? LOYALTY_REWARD_POINTS : 0));
+    return `${"★".repeat(filled)}${"☆".repeat(LOYALTY_REWARD_POINTS - filled)}`;
+  }
+
+  function selectLoyaltyCustomer(customer) {
+    state.posLoyaltyCustomerCode = customer?.customerCode || "";
+    state.posRewardApplied = false;
+    showToast(customer ? `${customer.fullName} seçildi. Puan: ${customer.points || 0}` : "Sadakat müşterisi temizlendi.");
+    render();
+  }
+
+  function updateLoyaltyCustomer(customerCode, updater) {
+    const customers = getLoyaltyCustomers();
+    const index = customers.findIndex((customer) => customer.customerCode === customerCode);
+    if (index < 0) return null;
+    customers[index] = updater({ ...customers[index] }) || customers[index];
+    customers[index].updatedAt = new Date().toISOString();
+    saveLoyaltyCustomers(customers);
+    syncLoyaltyCustomerToServer(customers[index]);
+    return customers[index];
+  }
+
+  function syncLoyaltyCustomerToServer(customer) {
+    if (!customer?.customerCode || !navigator.onLine) return;
+    fetch("/api/customer/loyalty-update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(customer)
+    }).catch(() => {});
+  }
+
+  function countDurumPointsFromSaleItems(items) {
+    return (items || []).reduce((sum, item) => {
+      const product = findProductById(item.productId);
+      if (item.rewardRedemption) return sum;
+      return sum + (isDoritosEligibleDurum(product) ? Number(item.quantity || 0) : 0);
+    }, 0);
+  }
+
+  function applyLoyaltySale(sale, saleItems) {
+    const customer = findLoyaltyCustomerByCode(state.posLoyaltyCustomerCode);
+    if (!customer) return null;
+    const earned = countDurumPointsFromSaleItems(saleItems);
+    const rewardUsed = saleItems.some((item) => item.rewardRedemption);
+    return updateLoyaltyCustomer(customer.customerCode, (current) => {
+      current.points = Math.max(0, Number(current.points || 0) + earned - (rewardUsed ? LOYALTY_REWARD_POINTS : 0));
+      current.totalPoints = Number(current.totalPoints || 0) + earned;
+      current.totalPurchases = Number(current.totalPurchases || 0) + 1;
+      current.rewardsEarned = Math.floor(Number(current.totalPoints || 0) / LOYALTY_REWARD_POINTS);
+      current.rewardsRedeemed = Number(current.rewardsRedeemed || 0) + (rewardUsed ? 1 : 0);
+      current.lastPurchaseAt = sale.date || new Date().toISOString().slice(0, 10);
+      return current;
+    });
+  }
+
+  function reverseLoyaltySale(sale) {
+    if (!sale?.loyaltyCustomerCode || sale.loyaltyReversed) return null;
+    return updateLoyaltyCustomer(sale.loyaltyCustomerCode, (current) => {
+      current.points = Math.max(0, Number(current.points || 0) - Number(sale.loyaltyPointsEarned || 0) + (sale.loyaltyRewardRedeemed ? LOYALTY_REWARD_POINTS : 0));
+      current.totalPoints = Math.max(0, Number(current.totalPoints || 0) - Number(sale.loyaltyPointsEarned || 0));
+      current.totalPurchases = Math.max(0, Number(current.totalPurchases || 0) - 1);
+      current.rewardsEarned = Math.floor(Number(current.totalPoints || 0) / LOYALTY_REWARD_POINTS);
+      current.rewardsRedeemed = Math.max(0, Number(current.rewardsRedeemed || 0) - (sale.loyaltyRewardRedeemed ? 1 : 0));
+      return current;
+    });
   }
 
   function normalizePhone(value) {
@@ -5527,6 +5884,7 @@ ${recentSales}`;
             <h2>Hızlı Satış (POS)</h2>
           </div>
           <div class="quick-pos-head-actions">
+            <button class="button primary" type="button" id="openLoyaltyScanner">QR Oku</button>
             <button class="button primary" type="button" id="openQuickPosCustomAmount">Tutarla Satış</button>
             <button class="button" type="button" id="clearQuickPosCart">Sepeti Temizle</button>
           </div>
@@ -5602,6 +5960,7 @@ ${recentSales}`;
           <h3>Canlı Sepet</h3>
           <span>${state.posCart.length} satır</span>
         </div>
+        ${quickPosLoyaltyPanel()}
         <div class="quick-pos-cart-list">
           ${state.posCart.length ? state.posCart.map(quickPosCartRow).join("") : empty("Ürün seçerek başlayın.")}
         </div>
@@ -5668,8 +6027,36 @@ ${recentSales}`;
     `;
   }
 
+  function quickPosLoyaltyPanel() {
+    const customer = findLoyaltyCustomerByCode(state.posLoyaltyCustomerCode);
+    const rewardAvailable = customer && Number(customer.points || 0) >= LOYALTY_REWARD_POINTS && !state.posRewardApplied;
+    return `
+      <section class="quick-pos-loyalty">
+        <div class="quick-pos-loyalty-head">
+          <div>
+            <span>Sadakat</span>
+            <strong>${customer ? escapeHtml(customer.fullName) : "Müşteri seçilmedi"}</strong>
+          </div>
+          ${customer ? `<button class="button compact" type="button" id="clearLoyaltyCustomer">Temizle</button>` : ""}
+        </div>
+        ${customer ? `
+          <div class="loyalty-mini-score">
+            <span>${loyaltyStars(customer.points)}</span>
+            <strong>${Number(customer.points || 0)} / ${LOYALTY_REWARD_POINTS} Puan</strong>
+          </div>
+          <button class="button primary" type="button" id="applyLoyaltyReward" ${rewardAvailable ? "" : "disabled"}>Ücretsiz Dürüm</button>
+        ` : `
+          <div class="quick-pos-phone-search">
+            <input id="quickPosLoyaltyPhone" type="tel" inputmode="tel" value="${escapeAttribute(state.posLoyaltyPhoneSearch)}" placeholder="Telefon ile müşteri ara" />
+            <button class="button compact" type="button" id="findLoyaltyByPhone">Bul</button>
+          </div>
+        `}
+      </section>
+    `;
+  }
+
   function quickPosCartRow(item) {
-    const optionText = hasCartDoritos(item) ? "Doritos" : item.saleType === "weighted" ? formatWeightedAmount(item) : "";
+    const optionText = item.rewardRedemption ? "Sadakat hediyesi" : hasCartDoritos(item) ? "Doritos" : item.saleType === "weighted" ? formatWeightedAmount(item) : "";
     const detailText = item.customAmountSale ? [item.note, `Stok düşümü: ${customAmountStockLabel(findProductById(item.originalProductId || item.productId), item.stockDeductQuantity || item.quantityKg || item.quantity || 0)}`].filter(Boolean).join(" - ") : optionText;
     return `
       <div class="quick-pos-cart-row">
@@ -5679,7 +6066,7 @@ ${recentSales}`;
         </div>
         <strong>${formatTRY(item.lineTotal)}</strong>
         <div class="quick-pos-row-actions">
-          ${item.saleType === "weighted" || item.customAmountSale || item.saleType === "custom-amount" ? "" : `<button type="button" data-pos-cart-dec="${escapeAttribute(item.key)}">-</button><span>x${item.quantity}</span><button type="button" data-pos-cart-inc="${escapeAttribute(item.key)}">+</button>`}
+          ${item.saleType === "weighted" || item.customAmountSale || item.saleType === "custom-amount" || item.rewardRedemption ? `<span>x${item.quantity}</span>` : `<button type="button" data-pos-cart-dec="${escapeAttribute(item.key)}">-</button><span>x${item.quantity}</span><button type="button" data-pos-cart-inc="${escapeAttribute(item.key)}">+</button>`}
           <button type="button" data-pos-cart-remove="${escapeAttribute(item.key)}">Sil</button>
         </div>
       </div>
@@ -5688,6 +6075,46 @@ ${recentSales}`;
 
   function quickPosCartKey(productId, options = [], saleType = "standard") {
     return `${saleType}:${productId}:${options.map((option) => option.id).sort().join("+")}`;
+  }
+
+  function findNormalDurumProduct() {
+    return state.data.products.find((product) => isDoritosEligibleDurum(product) && normalizeBusinessName(product.name).includes("normal"))
+      || state.data.products.find(isDoritosEligibleDurum)
+      || null;
+  }
+
+  function applyLoyaltyRewardToCart() {
+    const customer = findLoyaltyCustomerByCode(state.posLoyaltyCustomerCode);
+    if (!customer || Number(customer.points || 0) < LOYALTY_REWARD_POINTS) {
+      showToast("Ücretsiz dürüm için yeterli puan yok.");
+      return;
+    }
+    if (state.posRewardApplied || state.posCart.some((item) => item.rewardRedemption)) {
+      showToast("Bu satışta ücretsiz dürüm zaten eklendi.");
+      return;
+    }
+    const product = findNormalDurumProduct();
+    if (!product) {
+      showToast("Ücretsiz ödül için Normal Dürüm ürünü bulunamadı.");
+      return;
+    }
+    if (calculateAvailableRecipeQuantity(product) < 1) {
+      showToast("Ücretsiz dürüm için stok/reçete yetersiz.");
+      return;
+    }
+    state.posRewardApplied = true;
+    state.posCart.push({
+      key: quickPosCartKey(product.id, [], "reward") + `:${Date.now()}`,
+      productId: product.id,
+      name: `${product.name} HEDİYE`,
+      saleType: "reward",
+      rewardRedemption: true,
+      quantity: 1,
+      unitPrice: 0,
+      options: [],
+      lineTotal: 0
+    });
+    render();
   }
 
   function addQuickPosStandardProduct(product, options = []) {
@@ -5749,6 +6176,101 @@ ${recentSales}`;
         closeActiveModal();
       });
     });
+  }
+
+  function openLoyaltyScannerModal() {
+    const modal = openModal("Sadakat QR Oku", `
+      <div class="qr-scanner">
+        <video id="loyaltyQrVideo" playsinline muted></video>
+        <p class="muted" id="loyaltyQrStatus">Kamera başlatılıyor...</p>
+      </div>
+      <div class="form-grid two">
+        <input id="manualLoyaltyCode" placeholder="NXR-XXXXXX" />
+        <button class="button primary" type="button" id="selectManualLoyaltyCode">Kod ile Seç</button>
+        <input id="manualLoyaltyPhone" type="tel" inputmode="tel" placeholder="Telefon ile ara" />
+        <button class="button" type="button" id="selectManualLoyaltyPhone">Telefon ile Bul</button>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="button" data-close-modal>Kapat</button>
+      </div>
+    `);
+    const cleanup = startQrScanner(modal);
+    modal.addEventListener("click", (event) => {
+      if (event.target === modal || event.target.closest("[data-close-modal]")) cleanup?.();
+    });
+    modal.querySelector("#selectManualLoyaltyCode")?.addEventListener("click", async () => {
+      const customer = await lookupLoyaltyCustomer({ code: valueOf("manualLoyaltyCode") });
+      if (!customer) {
+        showToast("Bu QR/kod ile müşteri bulunamadı.");
+        return;
+      }
+      cleanup?.();
+      closeActiveModal();
+      selectLoyaltyCustomer(customer);
+    });
+    modal.querySelector("#selectManualLoyaltyPhone")?.addEventListener("click", async () => {
+      const customer = await lookupLoyaltyCustomer({ phone: valueOf("manualLoyaltyPhone") });
+      if (!customer) {
+        showToast("Bu telefon ile müşteri bulunamadı.");
+        return;
+      }
+      cleanup?.();
+      closeActiveModal();
+      selectLoyaltyCustomer(customer);
+    });
+  }
+
+  function startQrScanner(modal) {
+    const video = modal.querySelector("#loyaltyQrVideo");
+    const status = modal.querySelector("#loyaltyQrStatus");
+    let stopped = false;
+    let stream = null;
+    let detector = null;
+
+    const stop = () => {
+      stopped = true;
+      stream?.getTracks?.().forEach((track) => track.stop());
+    };
+
+    if (!navigator.mediaDevices?.getUserMedia || !("BarcodeDetector" in window)) {
+      if (status) status.textContent = "Bu tarayıcıda kamera ile QR okuma desteklenmiyor. Kod veya telefon ile seçebilirsiniz.";
+      return stop;
+    }
+
+    detector = new BarcodeDetector({ formats: ["qr_code"] });
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+      .then((cameraStream) => {
+        stream = cameraStream;
+        video.srcObject = stream;
+        video.play();
+        if (status) status.textContent = "QR kodu kameraya gösterin.";
+        const scan = async () => {
+          if (stopped) return;
+          try {
+            const codes = await detector.detect(video);
+            const value = codes[0]?.rawValue || "";
+            if (value) {
+              const customer = await lookupLoyaltyCustomer({ code: value });
+              if (customer) {
+                stop();
+                closeActiveModal();
+                selectLoyaltyCustomer(customer);
+                return;
+              }
+              if (status) status.textContent = "QR okundu ama müşteri bulunamadı.";
+            }
+          } catch {
+            if (status) status.textContent = "QR okunamadı, tekrar deneyin.";
+          }
+          requestAnimationFrame(scan);
+        };
+        requestAnimationFrame(scan);
+      })
+      .catch(() => {
+        if (status) status.textContent = "Kamera izni alınamadı. Kod veya telefon ile seçebilirsiniz.";
+      });
+
+    return stop;
   }
 
   function openQuickPosFirikModal(product) {
@@ -6027,6 +6549,8 @@ ${recentSales}`;
     });
     document.querySelectorAll("[data-pos-cart-remove]").forEach((button) => {
       button.addEventListener("click", () => {
+        const removed = state.posCart.find((item) => item.key === button.dataset.posCartRemove);
+        if (removed?.rewardRedemption) state.posRewardApplied = false;
         state.posCart = state.posCart.filter((item) => item.key !== button.dataset.posCartRemove);
         render();
       });
@@ -6068,11 +6592,26 @@ ${recentSales}`;
       state.posVeresiyeCustomerId = customerSelect.value;
     });
     bindClick("completeQuickPosSale", completeQuickPosSale);
+    bindClick("openLoyaltyScanner", openLoyaltyScannerModal);
+    bindClick("clearLoyaltyCustomer", () => selectLoyaltyCustomer(null));
+    bindClick("applyLoyaltyReward", applyLoyaltyRewardToCart);
+    bindClick("findLoyaltyByPhone", async () => {
+      const customer = await lookupLoyaltyCustomer({ phone: valueOf("quickPosLoyaltyPhone") });
+      if (!customer) {
+        showToast("Bu telefon ile sadakat müşterisi bulunamadı.");
+        return;
+      }
+      selectLoyaltyCustomer(customer);
+    });
+    const loyaltyPhone = document.getElementById("quickPosLoyaltyPhone");
+    loyaltyPhone?.addEventListener("input", () => {
+      state.posLoyaltyPhoneSearch = loyaltyPhone.value;
+    });
   }
 
   function changeQuickPosCartQuantity(key, delta) {
     const item = state.posCart.find((entry) => entry.key === key);
-    if (!item || item.saleType === "weighted" || item.customAmountSale || item.saleType === "custom-amount") return;
+    if (!item || item.saleType === "weighted" || item.customAmountSale || item.saleType === "custom-amount" || item.rewardRedemption) return;
     const product = findProductById(item.productId);
     const nextQuantity = Number(item.quantity || 0) + delta;
     if (nextQuantity <= 0) {
@@ -6184,6 +6723,7 @@ ${recentSales}`;
         pricePerKg: cartItem.pricePerKg || null,
         options: Array.isArray(cartItem.options) ? cartItem.options : [],
         optionsTotal: optionTotal(cartItem.options),
+        rewardRedemption: cartItem.rewardRedemption === true,
         recipeCost,
         grossProfit: lineTotal - recipeCost,
         lineTotal,
@@ -6208,6 +6748,9 @@ ${recentSales}`;
     const subtotal = saleItems.reduce((sum, item) => sum + item.total, 0);
     const discount = Math.min(Number(state.posDiscount || 0), subtotal);
     const recipeCost = saleItems.reduce((sum, item) => sum + item.recipeCost, 0);
+    const loyaltyCustomer = findLoyaltyCustomerByCode(state.posLoyaltyCustomerCode);
+    const loyaltyPointsEarned = loyaltyCustomer ? countDurumPointsFromSaleItems(saleItems) : 0;
+    const loyaltyRewardRedeemed = saleItems.some((item) => item.rewardRedemption);
     const sale = {
       id: createId(),
       productId: saleItems[0].productId,
@@ -6232,10 +6775,15 @@ ${recentSales}`;
       date: now.toISOString().slice(0, 10),
       time: now.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }),
       items: saleItems,
+      loyaltyCustomerCode: loyaltyCustomer?.customerCode || "",
+      loyaltyCustomerName: loyaltyCustomer?.fullName || "",
+      loyaltyPointsEarned,
+      loyaltyRewardRedeemed,
       stockApplied: true,
       stockMovementsReversed: false
     };
     state.data.sales.push(sale);
+    if (loyaltyCustomer) applyLoyaltySale(sale, saleItems);
     stockChanges.forEach((change) => pushStockMovement({
       ...change,
       saleId: sale.id,
@@ -6260,6 +6808,7 @@ ${recentSales}`;
     state.posCart = [];
     state.posDiscount = 0;
     state.posVeresiyeCustomerId = "";
+    state.posRewardApplied = false;
     state.posCashReceived = "";
     state.posCashHandling = "returned";
     saveData();
@@ -6429,6 +6978,7 @@ ${recentSales}`;
   }
 
   function saleLineTotal(product, quantity, item = {}) {
+    if (item.rewardRedemption || item.saleType === "reward") return 0;
     if (item.customAmountSale || item.saleType === "custom-amount") return Number(item.lineTotal || 0);
     if (item.saleType === "weighted") return Number(item.lineTotal || 0);
     return ((Number(product?.price) || 0) + optionTotal(item.options)) * Number(quantity || 0);
