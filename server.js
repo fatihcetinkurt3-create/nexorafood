@@ -215,7 +215,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (pathname === "/app.js" || pathname === "/styles.css" || pathname === "/supabase-client.js" || pathname === "/auth.js" || pathname === "/data-service.js" || pathname === "/offline-sync.js" || pathname === "/import-export.js" || pathname === "/backup-service.js") {
+  if (pathname === "/app.js" || pathname === "/styles.css" || pathname === "/supabase-client.js" || pathname === "/auth.js" || pathname === "/data-service.js" || pathname === "/ingredient-service.js" || pathname === "/recipe-service.js" || pathname === "/offline-sync.js" || pathname === "/import-export.js" || pathname === "/backup-service.js") {
     sendFile(res, path.join(publicDir, pathname));
     return;
   }
