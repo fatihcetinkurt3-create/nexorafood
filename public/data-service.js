@@ -840,6 +840,40 @@
     };
   }
 
+  function loyaltyCustomerFromDb(row = {}) {
+    return {
+      id: row.id,
+      customerCode: row.customer_code,
+      fullName: row.full_name,
+      phone: row.phone,
+      points: Number(row.points || 0),
+      totalPoints: Number(row.total_points || 0),
+      rewardsEarned: Number(row.rewards_earned || 0),
+      rewardsRedeemed: Number(row.rewards_redeemed || 0),
+      totalPurchases: Number(row.total_purchases || 0),
+      lastPurchaseAt: row.last_purchase_at || "",
+      lastPurchaseSummary: row.last_purchase_summary || null,
+      campaignOptIn: row.campaign_opt_in === true,
+      kvkkAccepted: row.kvkk_accepted === true,
+      qrCreatedAt: row.qr_created_at,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    };
+  }
+
+  async function fetchLoyaltyCustomers() {
+    const client = window.NexoraSupabase.getSupabaseClient();
+    const profile = await getProfile();
+    if (!profile?.business_id) return [];
+    const { data, error } = await client
+      .from("customers")
+      .select("*")
+      .eq("business_id", profile.business_id)
+      .order("updated_at", { ascending: false, nullsFirst: false });
+    if (error) throw error;
+    return (data || []).map(loyaltyCustomerFromDb);
+  }
+
   function subscribeRealtime(onChange) {
     const client = window.NexoraSupabase.getSupabaseClient();
     if (!client?.channel) return null;
@@ -849,6 +883,7 @@
       .on("postgres_changes", { event: "*", schema: "public", table: "sales" }, onChange)
       .on("postgres_changes", { event: "*", schema: "public", table: "stock_movements" }, onChange)
       .on("postgres_changes", { event: "*", schema: "public", table: "expenses" }, onChange)
+      .on("postgres_changes", { event: "*", schema: "public", table: "customers" }, onChange)
       .subscribe();
     return channel;
   }
@@ -864,6 +899,7 @@
     rescanAndRepairLocalData,
     subscribeRealtime,
     getProfile,
+    fetchLoyaltyCustomers,
     getClientContext,
     fetchBusinessProducts,
     saveImportedProducts,

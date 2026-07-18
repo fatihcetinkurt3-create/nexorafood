@@ -34,6 +34,7 @@
     { id: "Zayiat ve Sayım", label: "Zayiat ve Sayım" },
     { id: "Odemeler", label: "💳 Ödemeler" },
     { id: "Veresiye", label: "Veresiye Defteri" },
+    { id: "Müşteriler", label: "Müşteriler" },
     { id: "Raporlar", label: "📊 Raporlar" },
     { id: "WhatsApp Bildirimleri", label: "📱 WhatsApp Bildirimleri" },
     { id: "Giderler", label: "💸 Giderler" },
@@ -71,6 +72,8 @@
     posLoyaltyCustomerCode: "",
     posLoyaltyPhoneSearch: "",
     posRewardApplied: false,
+    loyaltyCustomersLoading: false,
+    loyaltyCustomersLoaded: false,
     posSearch: "",
     posCategory: "Tumu",
     posCashReceived: "",
@@ -397,6 +400,90 @@
     return `<div><span>${escapeHtml(icon)}</span><small>${escapeHtml(label)}</small><strong>${valueHtml}</strong></div>`;
   }
 
+  function loyaltyCustomersPage() {
+    const customers = getLoyaltyCustomers().slice().sort((firstCustomer, secondCustomer) => {
+      return String(secondCustomer.updatedAt || secondCustomer.createdAt || "").localeCompare(String(firstCustomer.updatedAt || firstCustomer.createdAt || ""));
+    });
+    return `
+      <div class="section-head loyalty-customers-head">
+        <div>
+          <p class="eyebrow">QR sadakat kulübü</p>
+          <h2>Müşteriler</h2>
+        </div>
+        <button class="button primary loyalty-poster-button" type="button" id="openQrPoster">QR Afişi Oluştur</button>
+      </div>
+      <section class="panel">
+        ${customers.length ? loyaltyCustomerTable(customers) : empty("Henüz kayıtlı sadakat müşterisi yok. Müşteriler /customer sayfasındaki QR kayıt formundan eklendikçe burada görünür.")}
+      </section>
+    `;
+  }
+
+  function loyaltyCustomerTable(customers) {
+    const rows = customers.map((customer) => `
+      <tr>
+        <td><strong>${escapeHtml(customer.fullName || "-")}</strong></td>
+        <td>${escapeHtml(formatPhoneDisplay(customer.phone))}</td>
+        <td>${Number(customer.points || 0)} / ${LOYALTY_REWARD_POINTS}</td>
+        <td>${Number(customer.rewardsEarned || 0)}</td>
+        <td>${Number(customer.totalPurchases || 0)}</td>
+        <td>${loyaltyCustomerLastPurchaseCell(customer)}</td>
+        <td>
+          <div class="loyalty-table-qr">
+            <img alt="${escapeAttribute(customer.customerCode || "Müşteri")} QR kodu" src="${escapeAttribute(qrImageUrl(customer.customerCode || ""))}" />
+            <span>${escapeHtml(customer.customerCode || "-")}</span>
+          </div>
+        </td>
+      </tr>
+    `).join("");
+    return `
+      <div class="table-wrap loyalty-customers-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Ad soyad</th>
+              <th>Telefon</th>
+              <th>Puan</th>
+              <th>Kazanılan ödül</th>
+              <th>Toplam alışveriş</th>
+              <th>Son alışveriş</th>
+              <th>Müşteri QR kodu</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  function loyaltyCustomerLastPurchaseCell(customer) {
+    const value = formatLastPurchase(customer);
+    return value && typeof value === "object" && value.html ? value.html : escapeHtml(String(value || "-"));
+  }
+
+  function formatPhoneDisplay(phone) {
+    const digits = String(phone || "").replace(/\D/g, "");
+    if (digits.length === 12 && digits.startsWith("90")) {
+      return `0${digits.slice(2, 5)} ${digits.slice(5, 8)} ${digits.slice(8, 10)} ${digits.slice(10, 12)}`;
+    }
+    return phone || "-";
+  }
+
+  async function refreshLoyaltyCustomersFromSupabase() {
+    if (state.loyaltyCustomersLoading || state.loyaltyCustomersLoaded || !window.NexoraDataService?.fetchLoyaltyCustomers) return;
+    if (!state.supabaseEnabled || !state.authSession || !navigator.onLine) return;
+    state.loyaltyCustomersLoading = true;
+    try {
+      const customers = await window.NexoraDataService.fetchLoyaltyCustomers();
+      customers.forEach(upsertLocalLoyaltyCustomer);
+      state.loyaltyCustomersLoaded = true;
+      if (state.page === "Müşteriler") render();
+    } catch (error) {
+      console.warn("[Loyalty] customers could not be refreshed", error);
+    } finally {
+      state.loyaltyCustomersLoading = false;
+    }
+  }
+
   function bindCustomerEvents() {
     bindClick("joinLoyalty", () => {
       history.pushState({}, "", "/customer/register");
@@ -606,6 +693,7 @@
     if (state.page === "Giderler") return expensesPage(summary);
     if (state.page === "Odemeler") return paymentsPage(summary);
     if (state.page === "Veresiye") return renderVeresiyePage();
+    if (state.page === "Müşteriler") return loyaltyCustomersPage();
     if (state.page === "Raporlar") return reportsPage(summary);
     if (state.page === "WhatsApp Bildirimleri") return whatsAppPage(summary);
     if (state.page === "Analiz Merkezi") return analyticsPage(summary);
@@ -3087,6 +3175,11 @@
         state.saleCategory = saleCategory.value;
         render();
       });
+    }
+
+    if (state.page === "Müşteriler") {
+      bindClick("openQrPoster", openQrPosterModal);
+      refreshLoyaltyCustomersFromSupabase();
     }
 
     bindClick("addSetupProduct", () => addProductFromForm("setup", state.setupProductDrafts));

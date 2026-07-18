@@ -1700,6 +1700,42 @@ textarea {
   margin-top: 10px;
 }
 
+.loyalty-customers-head {
+  align-items: stretch;
+}
+
+.loyalty-poster-button {
+  min-height: 52px;
+  padding-inline: 22px;
+  font-size: 1rem;
+  box-shadow: 0 14px 34px rgba(68, 214, 158, 0.22);
+}
+
+.loyalty-customers-table td {
+  vertical-align: middle;
+}
+
+.loyalty-table-qr {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  min-width: 120px;
+}
+
+.loyalty-table-qr img {
+  width: 84px;
+  height: 84px;
+  border-radius: 8px;
+  background: #fff;
+  padding: 6px;
+}
+
+.loyalty-table-qr span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
 .production-waste-page .top-actions {
   align-items: stretch;
 }
