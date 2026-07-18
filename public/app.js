@@ -1538,7 +1538,12 @@
                 <td>${formatStock(product.criticalLevel, product.unit)}</td>
                 <td>${isRawMaterial(product) ? `${formatTRY(product.purchasePrice || 0)}/kg` : formatTRY(calculateRecipeCost(product))}</td>
                 <td>${escapeHtml(product.supplier || "-")}</td>
-                <td><button class="button" data-remove-${isSetup ? "setup" : "product"}="${product.id}">Sil</button></td>
+                <td>
+                  <div class="table-actions">
+                    ${isSetup ? "" : `<button class="button compact" type="button" data-edit-product="${escapeAttribute(product.id)}">Düzenle</button>`}
+                    <button class="button compact danger-button" type="button" data-remove-${isSetup ? "setup" : "product"}="${escapeAttribute(product.id)}">Sil</button>
+                  </div>
+                </td>
               </tr>
             `).join("")}
           </tbody>
@@ -1584,6 +1589,177 @@
         </table>
       </div>
     `;
+  }
+
+  function openProductEditor(productId) {
+    const product = findProductById(productId);
+    if (!product) {
+      showToast("Ürün bulunamadı.");
+      return;
+    }
+    if (isRawMaterial(product)) {
+      showToast("Hammaddeler, Hammaddeler sayfasından yönetilir.");
+      return;
+    }
+
+    const categoryOptions = state.data.categories.length ? state.data.categories : ["Genel"];
+    const modal = openModal("Ürünü Düzenle", `
+      <form id="editProductForm" class="product-edit-form" data-product-id="${escapeAttribute(product.id)}">
+        <div class="form-grid two">
+          ${field("editProductName", "Ürün adı", product.name, "Normal Dürüm")}
+          ${field("editProductPrice", "Fiyat", product.price, "100", "number")}
+          <div class="field">
+            <label for="editProductCategory">Kategori</label>
+            <input id="editProductCategory" list="editProductCategoryList" value="${escapeAttribute(product.category || "Genel")}" placeholder="Dürüm" />
+            <datalist id="editProductCategoryList">
+              ${categoryOptions.map((category) => `<option value="${escapeAttribute(category)}"></option>`).join("")}
+            </datalist>
+          </div>
+          <div class="field">
+            <label for="editProductStockTrackingType">Stok takip türü</label>
+            <select id="editProductStockTrackingType">
+              ${stockTrackingTypes.map((type) => `<option value="${type.id}" ${product.stockTrackingType === type.id ? "selected" : ""}>${escapeHtml(type.label)}</option>`).join("")}
+            </select>
+          </div>
+        </div>
+
+        <section class="recipe-editor" id="editRecipeSection">
+          <div class="section-head compact-head">
+            <div>
+              <p class="eyebrow">Reçete</p>
+              <h3>Hammaddeler</h3>
+            </div>
+            <button class="button compact" id="addEditRecipeRow" type="button">Satır Ekle</button>
+          </div>
+          <div id="editRecipeRows">
+            ${renderRecipeEditorRows(product.recipe)}
+          </div>
+        </section>
+
+        <div class="modal-actions">
+          <button type="button" class="button" data-close-modal>İptal</button>
+          <button type="submit" class="button primary">Kaydet</button>
+        </div>
+      </form>
+    `);
+
+    const trackingSelect = modal.querySelector("#editProductStockTrackingType");
+    const recipeSection = modal.querySelector("#editRecipeSection");
+    const syncRecipeVisibility = () => {
+      const isRecipe = trackingSelect?.value === "recipe";
+      if (recipeSection) recipeSection.hidden = !isRecipe;
+      if (isRecipe && !modal.querySelector("[data-edit-recipe-row]")) addRecipeEditorRow(modal);
+    };
+
+    trackingSelect?.addEventListener("change", syncRecipeVisibility);
+    modal.querySelector("#addEditRecipeRow")?.addEventListener("click", () => addRecipeEditorRow(modal));
+    modal.querySelector("#editRecipeRows")?.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-remove-recipe-row]");
+      if (!button) return;
+      button.closest("[data-edit-recipe-row]")?.remove();
+      syncRecipeVisibility();
+    });
+    modal.querySelector("#editProductForm")?.addEventListener("submit", handleProductEditorSubmit);
+    syncRecipeVisibility();
+  }
+
+  function renderRecipeEditorRows(recipe = []) {
+    const rows = Array.isArray(recipe) && recipe.length ? recipe : [];
+    return rows.map((item) => recipeEditorRow(item)).join("");
+  }
+
+  function addRecipeEditorRow(modal) {
+    const rows = modal.querySelector("#editRecipeRows");
+    if (!rows) return;
+    rows.insertAdjacentHTML("beforeend", recipeEditorRow());
+  }
+
+  function recipeEditorRow(item = {}) {
+    const ingredients = state.data.products.filter(isRawMaterial).filter((ingredient) => ingredient.active !== false);
+    const selectedId = item.materialId || item.ingredientId || ingredients[0]?.id || "";
+    const selectedIngredient = ingredients.find((ingredient) => ingredient.id === selectedId);
+    const selectedUnit = item.unit || (normalizeIngredientUnit(selectedIngredient?.unit) === "Adet" ? "adet" : "gram");
+    return `
+      <div class="recipe-row" data-edit-recipe-row>
+        <div class="field">
+          <label>Hammadde</label>
+          <select data-recipe-ingredient>
+            ${ingredients.map((ingredient) => `<option value="${escapeAttribute(ingredient.id)}" ${selectedId === ingredient.id ? "selected" : ""}>${escapeHtml(ingredient.name)} (${escapeHtml(normalizeIngredientUnit(ingredient.unit))})</option>`).join("")}
+          </select>
+        </div>
+        <div class="field">
+          <label>Miktar</label>
+          <input data-recipe-amount type="number" min="0.001" step="0.001" value="${escapeAttribute(item.amount || item.quantity || "")}" placeholder="100" />
+        </div>
+        <div class="field">
+          <label>Birim</label>
+          <select data-recipe-unit>
+            <option value="gram" ${selectedUnit === "gram" ? "selected" : ""}>gram</option>
+            <option value="kilogram" ${selectedUnit === "kilogram" ? "selected" : ""}>kg</option>
+            <option value="adet" ${selectedUnit === "adet" ? "selected" : ""}>adet</option>
+          </select>
+        </div>
+        <button class="button compact danger-button recipe-row-remove" type="button" data-remove-recipe-row>Sil</button>
+      </div>
+    `;
+  }
+
+  async function handleProductEditorSubmit(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const product = findProductById(form.dataset.productId);
+    if (!product) {
+      showToast("Ürün bulunamadı.");
+      return;
+    }
+
+    const name = valueOf("editProductName");
+    const price = parseMoneyValue(valueOf("editProductPrice"));
+    const category = valueOf("editProductCategory") || "Genel";
+    const stockTrackingType = valueOf("editProductStockTrackingType") || "none";
+    if (!name || price < 0) {
+      showToast("Ürün adı ve geçerli fiyat girin.");
+      return;
+    }
+
+    const recipe = stockTrackingType === "recipe" ? collectRecipeEditorRows(form) : [];
+    if (stockTrackingType === "recipe" && !recipe.length) {
+      showToast("Reçeteli ürün için en az bir hammadde satırı ekleyin.");
+      return;
+    }
+
+    product.name = name;
+    product.price = price;
+    product.category = category;
+    product.stockTrackingType = stockTrackingType;
+    product.recipe = recipe;
+    if (!state.data.categories.includes(category)) state.data.categories.push(category);
+
+    try {
+      closeActiveModal();
+      saveData();
+      if (state.supabaseEnabled && state.authSession && navigator.onLine && window.NexoraDataService?.syncAllData) {
+        state.syncBusy = true;
+        await window.NexoraDataService.syncAllData(state.data);
+        state.syncStatus = "Ürün Supabase üzerinde güncellendi.";
+      }
+      showToast("Ürün ve reçetesi güncellendi.");
+    } catch (error) {
+      showToast(`Ürün güncelleme hatası: ${error.message}`);
+    } finally {
+      state.syncBusy = false;
+      render();
+    }
+  }
+
+  function collectRecipeEditorRows(form) {
+    return Array.from(form.querySelectorAll("[data-edit-recipe-row]"))
+      .map((row) => ({
+        materialId: row.querySelector("[data-recipe-ingredient]")?.value || "",
+        amount: parseMoneyValue(row.querySelector("[data-recipe-amount]")?.value || 0),
+        unit: normalizeRecipeUnit(row.querySelector("[data-recipe-unit]")?.value || "gram")
+      }))
+      .filter((item) => item.materialId && item.amount > 0);
   }
 
   function expensesTable(expenses) {
@@ -2820,6 +2996,10 @@
         saveData();
         render();
       });
+    });
+
+    document.querySelectorAll("[data-edit-product]").forEach((button) => {
+      button.addEventListener("click", () => openProductEditor(button.dataset.editProduct));
     });
 
     document.querySelectorAll("[data-cancel-sale]").forEach((button) => {

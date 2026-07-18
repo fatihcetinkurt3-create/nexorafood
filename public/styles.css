@@ -1467,6 +1467,34 @@ th {
   color: var(--danger);
 }
 
+.product-edit-form {
+  display: grid;
+  gap: 14px;
+}
+
+.recipe-editor {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.compact-head {
+  margin-bottom: 10px;
+}
+
+.recipe-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 1.5fr) minmax(100px, 0.8fr) minmax(100px, 0.8fr) auto;
+  gap: 10px;
+  align-items: end;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.recipe-row-remove {
+  min-height: 42px;
+  margin-bottom: 2px;
+}
+
 @media (max-width: 760px) {
   .cash-reconcile-row {
     grid-template-columns: 1fr;
@@ -1479,6 +1507,17 @@ th {
 
   .import-panel .button,
   .backup-panel .button {
+    min-height: 44px;
+  }
+
+  .recipe-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .recipe-row-remove,
+  .table-actions .button {
+    width: 100%;
     min-height: 44px;
   }
 }
