@@ -190,6 +190,7 @@ function customerFromDb(row = {}) {
     rewardsRedeemed: Number(row.rewards_redeemed || 0),
     totalPurchases: Number(row.total_purchases || 0),
     lastPurchaseAt: row.last_purchase_at || "",
+    lastPurchaseSummary: row.last_purchase_summary || null,
     campaignOptIn: row.campaign_opt_in === true,
     kvkkAccepted: row.kvkk_accepted === true,
     qrCreatedAt: row.qr_created_at,
@@ -231,6 +232,7 @@ async function handleCustomerLoyaltyUpdate(req, res) {
       rewards_redeemed: Math.max(0, Number(body.rewardsRedeemed || 0)),
       total_purchases: Math.max(0, Number(body.totalPurchases || 0)),
       last_purchase_at: body.lastPurchaseAt || null,
+      last_purchase_summary: body.lastPurchaseSummary || null,
       updated_at: new Date().toISOString()
     };
     const updated = await supabaseRest(`customers?customer_code=eq.${encodeURIComponent(code)}`, {
