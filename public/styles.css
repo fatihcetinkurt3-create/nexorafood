@@ -1412,6 +1412,268 @@ textarea {
   aspect-ratio: 1;
 }
 
+.customer-panel {
+  width: min(760px, 100%);
+  justify-self: center;
+  border-color: rgba(255, 255, 255, 0.18);
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.05)),
+    rgba(8, 16, 39, 0.82);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(18px);
+  animation: customerFadeSlide 560ms ease both;
+}
+
+.customer-subtitle {
+  margin: -4px 0 2px;
+  color: rgba(235, 245, 255, 0.76);
+}
+
+.loyalty-progress-card,
+.customer-qr-card,
+.loyalty-reward-ready {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.2);
+}
+
+.loyalty-progress-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  animation: customerFadeSlide 640ms ease 80ms both;
+}
+
+.loyalty-progress-bar {
+  height: 22px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.loyalty-progress-bar span {
+  display: block;
+  width: var(--progress);
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--green), #facc15);
+  box-shadow: 0 0 24px rgba(68, 214, 158, 0.45);
+  animation: loyaltyProgressFill 900ms ease both;
+}
+
+.loyalty-score {
+  text-align: center;
+  color: rgba(235, 245, 255, 0.78);
+  font-weight: 800;
+}
+
+.loyalty-score strong {
+  color: #fff;
+  font-size: 1.35rem;
+}
+
+.reward-next {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  text-align: center;
+}
+
+.reward-next span,
+.loyalty-reward-ready > span {
+  font-size: 2rem;
+}
+
+.reward-next p,
+.customer-qr-card p {
+  margin: 0;
+  color: rgba(235, 245, 255, 0.74);
+}
+
+.customer-qr-card {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 18px;
+  text-align: center;
+  animation: customerFadeSlide 700ms ease 140ms both;
+}
+
+.customer-qr-card h2 {
+  margin: 0;
+  font-size: 1.22rem;
+}
+
+.customer-qr-card small {
+  color: rgba(235, 245, 255, 0.58);
+}
+
+.customer-qr-card .customer-qr-wrap {
+  width: min(330px, 100%);
+  padding: 14px;
+  border: 0;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.25);
+}
+
+.customer-qr-card .customer-qr-wrap img {
+  width: min(300px, 72vw);
+}
+
+.loyalty-reward-ready {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 18px;
+  text-align: center;
+  background: linear-gradient(145deg, rgba(34, 197, 94, 0.94), rgba(20, 184, 166, 0.88));
+  color: #042014;
+  animation: customerFadeSlide 620ms ease both;
+}
+
+.loyalty-reward-ready strong {
+  font-size: 1.15rem;
+  letter-spacing: 0.08em;
+}
+
+.loyalty-reward-ready h2,
+.loyalty-reward-ready p {
+  margin: 0;
+}
+
+.loyalty-reward-ready small {
+  font-weight: 900;
+}
+
+.customer-stats div {
+  position: relative;
+  overflow: hidden;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  min-height: 104px;
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.075);
+  transition: transform 180ms ease, background 180ms ease, border-color 180ms ease;
+  animation: customerFadeSlide 740ms ease both;
+}
+
+.customer-stats div:hover {
+  transform: translateY(-3px);
+  border-color: rgba(68, 214, 158, 0.42);
+  background: rgba(255, 255, 255, 0.11);
+}
+
+.customer-stats div span {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 1.35rem;
+}
+
+.customer-stats div small {
+  color: rgba(235, 245, 255, 0.62);
+}
+
+.customer-stats div strong {
+  grid-column: 1 / -1;
+  color: #fff;
+  line-height: 1.45;
+}
+
+.qr-poster-print-area {
+  width: min(100%, 210mm);
+  min-height: 297mm;
+  display: grid;
+  align-content: space-between;
+  gap: 18px;
+  margin: 0 auto;
+  padding: 20mm 16mm;
+  color: #07111f;
+  background:
+    radial-gradient(circle at 50% 14%, rgba(68, 214, 158, 0.32), transparent 32%),
+    linear-gradient(180deg, #ffffff 0%, #eef8f5 100%);
+  text-align: center;
+}
+
+.qr-poster-logo .customer-logo {
+  justify-content: center;
+  color: #07111f;
+}
+
+.qr-poster-logo .customer-logo span {
+  color: #51606f;
+}
+
+.qr-poster-main {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+}
+
+.qr-poster-gift {
+  font-size: 3.2rem;
+}
+
+.qr-poster-main h1 {
+  margin: 0;
+  font-size: clamp(2.1rem, 7vw, 4rem);
+  line-height: 1.05;
+  color: #07111f;
+}
+
+.qr-poster-qr {
+  margin: 10px 0;
+  padding: 14px;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 18px 46px rgba(15, 23, 42, 0.18);
+}
+
+.qr-poster-qr img {
+  width: min(320px, 64vw);
+  aspect-ratio: 1;
+}
+
+.qr-poster-main p {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #1f2937;
+}
+
+.qr-poster-print-area footer {
+  color: #334155;
+  font-weight: 900;
+}
+
+.qr-poster-print-area footer span {
+  font-weight: 700;
+}
+
+@keyframes customerFadeSlide {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes loyaltyProgressFill {
+  from {
+    width: 0;
+  }
+  to {
+    width: var(--progress);
+  }
+}
+
 .center-text,
 .center-card {
   text-align: center;
@@ -1578,6 +1840,61 @@ th {
 @media (max-width: 520px) {
   .hero {
     padding-top: 24px;
+  }
+
+  .customer-page {
+    gap: 10px;
+    padding: 12px 12px 18px;
+  }
+
+  .customer-logo {
+    gap: 8px;
+  }
+
+  .customer-card.customer-panel {
+    gap: 10px;
+    padding: 14px;
+  }
+
+  .customer-card h1 {
+    margin-bottom: 4px;
+    font-size: 1.5rem;
+  }
+
+  .customer-subtitle {
+    font-size: 0.92rem;
+  }
+
+  .loyalty-progress-card,
+  .customer-qr-card,
+  .loyalty-reward-ready {
+    padding: 12px;
+  }
+
+  .loyalty-progress-bar {
+    height: 18px;
+  }
+
+  .reward-next span,
+  .loyalty-reward-ready > span {
+    font-size: 1.55rem;
+  }
+
+  .customer-qr-card h2 {
+    font-size: 1.05rem;
+  }
+
+  .customer-qr-card .customer-qr-wrap {
+    padding: 10px;
+  }
+
+  .customer-qr-card .customer-qr-wrap img {
+    width: min(220px, 58vw);
+  }
+
+  .qr-poster-print-area {
+    min-height: 74vh;
+    padding: 22px 14px;
   }
 
   .brand {
@@ -1778,7 +2095,9 @@ th {
   }
 
   .cash-closing-print-area,
-  .cash-closing-print-area * {
+  .cash-closing-print-area *,
+  .qr-poster-print-area,
+  .qr-poster-print-area * {
     visibility: visible !important;
   }
 
@@ -1790,5 +2109,21 @@ th {
     background: #fff;
     padding: 8px;
     font-size: 11px;
+  }
+
+  .qr-poster-print-area {
+    position: absolute;
+    inset: 0;
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0;
+    box-shadow: none;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  @page {
+    size: A4 portrait;
+    margin: 0;
   }
 }

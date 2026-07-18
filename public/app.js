@@ -337,35 +337,64 @@
       `;
     }
     const points = Number(customer.points || 0);
-    const remaining = Math.max(0, LOYALTY_REWARD_POINTS - (points % LOYALTY_REWARD_POINTS || (points >= LOYALTY_REWARD_POINTS ? LOYALTY_REWARD_POINTS : points)));
-    const displayRemaining = points >= LOYALTY_REWARD_POINTS ? 0 : remaining;
+    const rewardReady = points >= LOYALTY_REWARD_POINTS;
+    const displayPoints = rewardReady ? LOYALTY_REWARD_POINTS : points % LOYALTY_REWARD_POINTS;
+    const displayRemaining = rewardReady ? 0 : Math.max(0, LOYALTY_REWARD_POINTS - displayPoints);
+    const progressPercent = Math.max(0, Math.min(100, (displayPoints / LOYALTY_REWARD_POINTS) * 100));
     return `
       <main class="customer-page">
         ${customerLogo()}
         <section class="customer-card customer-panel">
           <p class="eyebrow">Müşteri Paneli</p>
-          <h1>Merhaba ${escapeHtml(firstName(customer.fullName))}</h1>
-          <div class="loyalty-stars">${loyaltyStars(points)}</div>
-          <div class="loyalty-score"><strong>${points % LOYALTY_REWARD_POINTS || (points >= LOYALTY_REWARD_POINTS ? LOYALTY_REWARD_POINTS : points)} / ${LOYALTY_REWARD_POINTS}</strong> Puan</div>
-          <div class="reward-left">Ödüle kalan: <strong>${displayRemaining}</strong> dürüm</div>
+          <h1>👋 Merhaba ${escapeHtml(titleCaseName(firstName(customer.fullName)))}!</h1>
+          <p class="customer-subtitle">Sadakat yolculuğun devam ediyor.</p>
+          ${rewardReady ? loyaltyRewardReadyCard() : ""}
+          <section class="loyalty-progress-card">
+            <div class="loyalty-progress-bar" aria-label="${displayPoints} / ${LOYALTY_REWARD_POINTS} Puan">
+              <span style="--progress:${progressPercent}%"></span>
+            </div>
+            <div class="loyalty-score"><strong>${displayPoints} / ${LOYALTY_REWARD_POINTS}</strong> Puan</div>
+            <div class="reward-next">
+              <span>🎁</span>
+              <strong>Sadece ${displayRemaining} dürüm sonra</strong>
+              <p>Ücretsiz Normal Dürüm kazanacaksın.</p>
+            </div>
+          </section>
+          <section class="customer-qr-card">
+            <h2>QR Sadakat Kartın</h2>
+            <div class="customer-qr-wrap">
+              <img alt="Sadakat QR kodu" src="${escapeAttribute(qrImageUrl(customer.customerCode))}" />
+              <strong>${escapeHtml(customer.customerCode)}</strong>
+            </div>
+            <p>Kasada bu QR kodunu okutmanız yeterlidir.</p>
+            <small>Telefon numaranızı söylemenize gerek yok.</small>
+          </section>
           <div class="customer-stats">
-            ${customerStat("Toplam puan", points)}
-            ${customerStat("Kazanılan ödüller", Number(customer.rewardsEarned || 0))}
-            ${customerStat("Toplam alışveriş", Number(customer.totalPurchases || 0))}
-            ${customerStat("Son alışveriş", customer.lastPurchaseAt ? formatDateTR(customer.lastPurchaseAt) : "-")}
+            ${customerStat("⭐", "Toplam puan", points)}
+            ${customerStat("🎁", "Kazanılan ödüller", Number(customer.rewardsEarned || 0))}
+            ${customerStat("🧾", "Toplam alışveriş", Number(customer.totalPurchases || 0))}
+            ${customerStat("🛍️", "Son alışveriş", formatLastPurchase(customer))}
           </div>
-          <div class="customer-qr-wrap">
-            <img alt="Sadakat QR kodu" src="${escapeAttribute(qrImageUrl(customer.customerCode))}" />
-            <strong>${escapeHtml(customer.customerCode)}</strong>
-          </div>
-          <p class="muted center-text">Kasada bu QR kodunu okutmanız yeterlidir.</p>
         </section>
       </main>
     `;
   }
 
-  function customerStat(label, value) {
-    return `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>`;
+  function loyaltyRewardReadyCard() {
+    return `
+      <section class="loyalty-reward-ready">
+        <span>🎉</span>
+        <strong>TEBRİKLER</strong>
+        <h2>Ücretsiz<br />Normal Dürüm</h2>
+        <p>kazandınız.</p>
+        <small>Kasaya bu ekranı gösterin.</small>
+      </section>
+    `;
+  }
+
+  function customerStat(icon, label, value) {
+    const valueHtml = value && typeof value === "object" && value.html ? value.html : escapeHtml(String(value));
+    return `<div><span>${escapeHtml(icon)}</span><small>${escapeHtml(label)}</small><strong>${valueHtml}</strong></div>`;
   }
 
   function bindCustomerEvents() {
@@ -4424,6 +4453,33 @@ ${recentSales}`;
     return String(value || "").trim().split(/\s+/)[0] || "Misafir";
   }
 
+  function titleCaseName(value) {
+    return String(value || "")
+      .toLocaleLowerCase("tr-TR")
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toLocaleUpperCase("tr-TR") + part.slice(1))
+      .join(" ");
+  }
+
+  function formatCustomerShortDate(value) {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return formatDateTR(value);
+    return new Intl.DateTimeFormat("tr-TR", { day: "numeric", month: "long" }).format(date);
+  }
+
+  function formatLastPurchase(customer) {
+    const summary = customer?.lastPurchaseSummary;
+    if (!summary) return customer?.lastPurchaseAt ? formatCustomerShortDate(customer.lastPurchaseAt) : "-";
+    const itemText = Array.isArray(summary.items) && summary.items.length
+      ? summary.items.slice(0, 3).map((item) => `${escapeHtml(Number(item.quantity || 0).toLocaleString("tr-TR"))} ${escapeHtml(item.productName || item.name || "Ürün")}`).join("<br />")
+      : "-";
+    return {
+      html: `${escapeHtml(formatCustomerShortDate(summary.date || customer.lastPurchaseAt))}<br />${itemText}<br />${escapeHtml(formatTRY(summary.total || 0))}`
+    };
+  }
+
   function loyaltyStars(points) {
     const filled = Math.min(LOYALTY_REWARD_POINTS, Number(points || 0) % LOYALTY_REWARD_POINTS || (Number(points || 0) >= LOYALTY_REWARD_POINTS ? LOYALTY_REWARD_POINTS : 0));
     return `${"★".repeat(filled)}${"☆".repeat(LOYALTY_REWARD_POINTS - filled)}`;
@@ -4476,6 +4532,18 @@ ${recentSales}`;
       current.rewardsEarned = Math.floor(Number(current.totalPoints || 0) / LOYALTY_REWARD_POINTS);
       current.rewardsRedeemed = Number(current.rewardsRedeemed || 0) + (rewardUsed ? 1 : 0);
       current.lastPurchaseAt = sale.date || new Date().toISOString().slice(0, 10);
+      current.lastPurchaseSummary = {
+        date: sale.date || new Date().toISOString().slice(0, 10),
+        total: Number(sale.total || 0),
+        items: (saleItems || [])
+          .filter((item) => !item.rewardRedemption)
+          .slice(0, 5)
+          .map((item) => ({
+            productName: item.productName || item.name || "Ürün",
+            quantity: Number(item.quantity || item.quantityKg || 0),
+            total: Number(item.total || item.lineTotal || 0)
+          }))
+      };
       return current;
     });
   }
@@ -5885,6 +5953,7 @@ ${recentSales}`;
           </div>
           <div class="quick-pos-head-actions">
             <button class="button primary" type="button" id="openLoyaltyScanner">QR Oku</button>
+            <button class="button" type="button" id="openQrPoster">QR Afişi Oluştur</button>
             <button class="button primary" type="button" id="openQuickPosCustomAmount">Tutarla Satış</button>
             <button class="button" type="button" id="clearQuickPosCart">Sepeti Temizle</button>
           </div>
@@ -6218,6 +6287,35 @@ ${recentSales}`;
       closeActiveModal();
       selectLoyaltyCustomer(customer);
     });
+  }
+
+  function customerLandingUrl() {
+    return `${window.location.origin || ""}/customer`;
+  }
+
+  function openQrPosterModal() {
+    const landingUrl = customerLandingUrl();
+    const modal = openModal("QR Afişi Oluştur", `
+      <div class="qr-poster-print-area">
+        <div class="qr-poster-logo">${customerLogo()}</div>
+        <div class="qr-poster-main">
+          <div class="qr-poster-gift">🎁</div>
+          <h1>10 DÜRÜM AL<br />1 DÜRÜM HEDİYE!</h1>
+          <div class="qr-poster-qr">
+            <img alt="Müşteri kayıt QR kodu" src="${escapeAttribute(qrImageUrl(landingUrl))}" />
+          </div>
+          <p>QR'ı okut.</p>
+          <p>30 saniyede ücretsiz üye ol.</p>
+          <p>Puan kazanmaya hemen başla.</p>
+        </div>
+        <footer>Nexora Food AI<br /><span>ile güçlendirilmiştir.</span></footer>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="button" data-close-modal>Kapat</button>
+        <button type="button" class="button primary" id="printQrPoster">PDF İndir / Yazdır</button>
+      </div>
+    `);
+    modal.querySelector("#printQrPoster")?.addEventListener("click", () => window.print());
   }
 
   function startQrScanner(modal) {
@@ -6593,6 +6691,7 @@ ${recentSales}`;
     });
     bindClick("completeQuickPosSale", completeQuickPosSale);
     bindClick("openLoyaltyScanner", openLoyaltyScannerModal);
+    bindClick("openQrPoster", openQrPosterModal);
     bindClick("clearLoyaltyCustomer", () => selectLoyaltyCustomer(null));
     bindClick("applyLoyaltyReward", applyLoyaltyRewardToCart);
     bindClick("findLoyaltyByPhone", async () => {
