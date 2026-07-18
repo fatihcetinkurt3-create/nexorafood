@@ -45,6 +45,7 @@ begin
           rewards_redeemed integer not null default 0,
           total_purchases integer not null default 0,
           last_purchase_at timestamptz,
+          last_purchase_summary jsonb,
           kvkk_accepted boolean not null default false,
           campaign_opt_in boolean not null default false,
           qr_created_at timestamptz not null default now(),
@@ -68,6 +69,7 @@ begin
           rewards_redeemed integer not null default 0,
           total_purchases integer not null default 0,
           last_purchase_at timestamptz,
+          last_purchase_summary jsonb,
           kvkk_accepted boolean not null default false,
           campaign_opt_in boolean not null default false,
           qr_created_at timestamptz not null default now(),
@@ -88,6 +90,7 @@ begin
     alter table public.customers add column if not exists rewards_redeemed integer not null default 0;
     alter table public.customers add column if not exists total_purchases integer not null default 0;
     alter table public.customers add column if not exists last_purchase_at timestamptz;
+    alter table public.customers add column if not exists last_purchase_summary jsonb;
     alter table public.customers add column if not exists kvkk_accepted boolean not null default false;
     alter table public.customers add column if not exists campaign_opt_in boolean not null default false;
     alter table public.customers add column if not exists updated_at timestamptz not null default now();
